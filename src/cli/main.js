@@ -8,6 +8,7 @@ const { createProviders, MODES, MODE_IDS, isMode } = require('../lib/providers')
 const { redactEndpoint } = require('../lib/providers/brittain');
 const { createPrompter } = require('./prompts');
 const { ensureSettings, setupProvider } = require('./first-run');
+const { createRuntime } = require('../core/runtime');
 
 const HELP = `brittain ${pkg.version} — a lightweight terminal coding agent
 
@@ -16,6 +17,7 @@ Usage:
   brittain -p "<prompt>"          Run one prompt non-interactively
 
 Commands:
+  brittain ask "<prompt>"         One model call, no tools; streams the answer
   brittain provider [mode]        Show or switch the provider: brittain, openai, ollama
   brittain models                 List models for the active provider
   brittain login [--provider m]   Save an API key (brittain or openai) in the keychain
@@ -24,11 +26,14 @@ Commands:
   brittain config set <key> <v>   Change a setting
 
 Options:
+  --provider <mode>               Use this provider for one invocation (not saved)
+  --model <name>                  Use this model for one invocation (not saved)
+  --show-thinking                 Print the model's reasoning (dimmed, on stderr)
   -h, --help                      Show this help
   -v, --version                   Print the version
 `;
 
-const SUBCOMMANDS = new Set(['config', 'login', 'logout', 'provider', 'models']);
+const SUBCOMMANDS = new Set(['ask', 'config', 'login', 'logout', 'provider', 'models']);
 
 function createIO({ stdout, stderr, env }) {
   // Last line of defence for PLAN.md §5.2: nothing the CLI prints can carry
@@ -153,6 +158,46 @@ async function modelsCommand(_args, ctx, io) {
   return 0;
 }
 
+async function askCommand(positionals, options, ctx, io, { stdout, stderr, env }) {
+  const prompt = positionals.join(' ').trim();
+  if (!prompt) throw new Error('Usage: brittain ask "<prompt>"');
+  const { commands, events } = createRuntime({
+    host: ctx.host,
+    env,
+    overrides: { provider: options.provider, model: options.model },
+  });
+  const color = !env.NO_COLOR && stderr.isTTY;
+  const dim = (text) => (color ? `\x1b[2m${text}\x1b[22m` : text);
+  let wroteThinking = false;
+  let wroteText = false;
+  const unsubscribe = events.subscribe((channel, payload) => {
+    if (channel === 'stream:token') {
+      if (wroteThinking && !wroteText) stderr.write('\n');
+      wroteText = true;
+      stdout.write(payload);
+    } else if (channel === 'stream:thinking' && options['show-thinking']) {
+      wroteThinking = true;
+      stderr.write(dim(payload));
+    } else if (channel === 'stream:info') {
+      io.err(payload);
+    }
+  });
+  const onSigint = () => commands.stop();
+  process.once('SIGINT', onSigint);
+  try {
+    const result = await commands.ask({ prompt });
+    if (wroteText) stdout.write('\n');
+    if (!result.ok) {
+      io.err(result.error);
+      return 1;
+    }
+    return 0;
+  } finally {
+    process.removeListener('SIGINT', onSigint);
+    unsubscribe();
+  }
+}
+
 async function main(argv, {
   stdin = process.stdin,
   stdout = process.stdout,
@@ -171,6 +216,11 @@ async function main(argv, {
         help: { type: 'boolean', short: 'h' },
         version: { type: 'boolean', short: 'v' },
         ...(subcommand === 'login' || subcommand === 'logout' ? { provider: { type: 'string' } } : {}),
+        ...(subcommand === 'ask' ? {
+          provider: { type: 'string' },
+          model: { type: 'string' },
+          'show-thinking': { type: 'boolean' },
+        } : {}),
       },
     });
   } catch (error) {
@@ -194,6 +244,7 @@ async function main(argv, {
     if (subcommand === 'logout') return await logoutCommand(values, ctx, io);
     if (subcommand === 'provider') return await providerCommand(positionals, ctx, io, { stdin });
     if (subcommand === 'models') return await modelsCommand(positionals, ctx, io);
+    if (subcommand === 'ask') return await askCommand(positionals, values, ctx, io, { stdout, stderr, env });
     return 0;
   } catch (error) {
     io.err(`brittain: ${error?.message || error}`);
