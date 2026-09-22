@@ -10,11 +10,14 @@ const { createPrompter } = require('./prompts');
 const { ensureSettings, setupProvider } = require('./first-run');
 const { createRuntime } = require('../core/runtime');
 const { runPrintMode } = require('./print-mode');
+const { startRepl } = require('./session');
 
 const HELP = `brittain ${pkg.version} — a lightweight terminal coding agent
 
 Usage:
   brittain [options]              Start an interactive session in this directory
+  brittain --continue             Continue the latest chat in this directory
+  brittain --resume [id]          Pick a saved chat to continue (or name one)
   brittain -p "<prompt>"          Run one prompt non-interactively
 
 Commands:
@@ -232,6 +235,8 @@ async function main(argv, {
           yes: { type: 'boolean' },
           'output-format': { type: 'string' },
           verbose: { type: 'boolean' },
+          continue: { type: 'boolean', short: 'c' },
+          resume: { type: 'boolean', short: 'r' },
         } : {}),
         ...(subcommand === 'login' || subcommand === 'logout' ? { provider: { type: 'string' } } : {}),
         ...(subcommand === 'ask' ? {
@@ -250,9 +255,12 @@ async function main(argv, {
     io.out(pkg.version);
     return 0;
   }
-  if (values.help || (!subcommand && values.print === undefined)) {
+  if (values.help) {
     io.out(HELP);
     return 0;
+  }
+  if (!subcommand && values.print === undefined) {
+    return startRepl({ options: values, positionals, env, stdin, stdout, stderr, keychain, io });
   }
 
   const ctx = context({ env, stdin, stderr, keychain });
