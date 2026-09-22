@@ -71,7 +71,10 @@ test('package.json has no runtime dependencies', () => {
 });
 
 test('every ported file carries a provenance header', () => {
-  for (const file of sourceFiles(path.join(ROOT, 'src', 'lib'))) {
+  // providers/ is new code for the CLI's provider modes, not a port.
+  const ported = sourceFiles(path.join(ROOT, 'src', 'lib'))
+    .filter((file) => !file.includes(`${path.sep}providers${path.sep}`));
+  for (const file of ported) {
     const first = fs.readFileSync(file, 'utf8').split('\n')[0];
     assert.match(first, /^\/\/ Ported from brittain-code@[0-9a-f]{40}:/, path.relative(ROOT, file));
   }

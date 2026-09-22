@@ -166,7 +166,75 @@ function saveSettings(userDataDir, value) {
   return normalized;
 }
 
+// ---------- config get / set ----------
+// Dotted keys over the settings document, for `brittain config` and
+// /settings. Only keys that exist in the normalized document are addressable,
+// so a typo is an error rather than a silently ignored field.
+
+const SETTABLE_KEYS = Object.freeze([
+  'provider',
+  'providers.brittain.model',
+  'providers.openai.endpoint',
+  'providers.openai.model',
+  'providers.ollama.endpoint',
+  'providers.ollama.model',
+  ...Object.keys(DEFAULT_SETTINGS).filter((key) => key !== 'provider' && key !== 'providers'),
+]);
+
+function getSetting(settings, key) {
+  if (!key) return settings;
+  let value = settings;
+  for (const part of String(key).split('.')) {
+    if (!value || typeof value !== 'object' || !(part in value)) throw new Error(`Unknown setting "${key}".`);
+    value = value[part];
+  }
+  return value;
+}
+
+// Text from the command line becomes the type the setting already has.
+function parseValue(key, raw, current) {
+  const text = String(raw ?? '').trim();
+  if (typeof current === 'boolean') {
+    if (/^(true|on|yes|1)$/i.test(text)) return true;
+    if (/^(false|off|no|0)$/i.test(text)) return false;
+    throw new Error(`"${key}" takes true or false.`);
+  }
+  if (typeof current === 'number') {
+    const number = Number(text);
+    if (text === '' || !Number.isFinite(number)) throw new Error(`"${key}" takes a number.`);
+    return number;
+  }
+  return text;
+}
+
+function setSetting(settings, key, raw) {
+  if (key === 'providers.brittain.endpoint') {
+    throw new Error('The Brittain endpoint is built in and cannot be configured.');
+  }
+  if (!SETTABLE_KEYS.includes(key)) throw new Error(`Unknown setting "${key}".`);
+  const current = getSetting(settings, key);
+  let value = parseValue(key, raw, current);
+  if (/\.endpoint$/.test(key)) value = value ? normalizeEndpoint(value) : '';
+  if (key === 'provider' && !PROVIDER_MODES.includes(value)) {
+    throw new Error(`provider must be one of: ${PROVIDER_MODES.join(', ')}.`);
+  }
+  if (key === 'defaultMode' && !['code', 'chat'].includes(value)) throw new Error('defaultMode must be code or chat.');
+  if (key === 'keepAlive' && !['0', '5m', '30m', '-1'].includes(value)) throw new Error('keepAlive must be one of: 0, 5m, 30m, -1.');
+
+  const next = JSON.parse(JSON.stringify(settings));
+  const parts = key.split('.');
+  let target = next;
+  for (const part of parts.slice(0, -1)) target = target[part];
+  target[parts[parts.length - 1]] = value;
+  const normalized = normalizeSettings(next);
+  const applied = getSetting(normalized, key);
+  return { settings: normalized, value: applied, adjusted: applied !== value };
+}
+
 module.exports = {
+  SETTABLE_KEYS,
+  getSetting,
+  setSetting,
   DEFAULT_PROVIDERS,
   DEFAULT_SETTINGS,
   PROVIDER_MODES,

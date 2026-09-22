@@ -37,10 +37,12 @@ const ollamaTransport = {
   id: 'ollama',
   needsKey: false,
 
-  request({ endpoint, model, messages, tools, think, numCtx, temperature, keepAlive, maxTokens }) {
+  request({ endpoint, model, messages, tools, think, numCtx, temperature, keepAlive, maxTokens, extraHeaders }) {
     return {
       url: endpoint.replace(/\/+$/, '') + '/api/chat',
-      headers: { 'Content-Type': 'application/json' },
+      // Ollama itself takes no key; extraHeaders exists so the Brittain mode can
+      // authenticate against an Ollama-shaped server.
+      headers: { 'Content-Type': 'application/json', ...(extraHeaders || {}) },
       body: {
         model,
         // A conversation can start on an OpenAI-compatible provider and then
@@ -169,7 +171,7 @@ const openAITransport = {
   id: 'openai',
   needsKey: true,
 
-  request({ endpoint, apiKey, model, messages, tools, think, temperature, maxTokens }) {
+  request({ endpoint, apiKey, model, messages, tools, think, temperature, maxTokens, extraHeaders }) {
     return {
       // The endpoint setting holds the base URL — https://openrouter.ai/api/v1
       // or https://api.z.ai/api/paas/v4 — exactly as the provider documents it.
@@ -177,6 +179,8 @@ const openAITransport = {
       headers: {
         'Content-Type': 'application/json',
         ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+        // The Brittain mode sends its own auth header (providers/brittain.js).
+        ...(extraHeaders || {}),
       },
       body: {
         model,
@@ -308,9 +312,11 @@ function providerPath(provider, operation) {
   return PROVIDER_PATHS[String(provider || 'ollama')]?.[operation] || null;
 }
 
-function safeProviderError(status, body) {
+// `redact` scrubs anything that must never be shown — the Brittain endpoint
+// (PLAN.md §5.2) — from the provider's body before it is excerpted.
+function safeProviderError(status, body, { redact = (value) => value } = {}) {
   const code = Number(status) || 0;
-  const text = String(body || '').trim();
+  const text = String(redact(String(body || ''))).trim();
   if (/^(?:<!doctype\s+html|<html)\b/i.test(text)) {
     return `provider returned an HTML error page (${code}) — check endpoint base URL`;
   }
