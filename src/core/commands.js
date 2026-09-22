@@ -11,8 +11,8 @@ const { estimateContextTokens } = require('../lib/context-estimator');
 const { getSetting, setSetting } = require('../lib/settings');
 const { MODES, isMode } = require('../lib/providers');
 const { CODE_TOOLS, CHAT_TOOLS, RISKY_TOOLS, SENSITIVE_TOOLS, DESTRUCTIVE_TOOLS, gitRun } = require('../lib/tools');
-const workspace = require('../lib/workspace');
 const { modelReadyMessages } = require('./context-hygiene');
+const { pinFile, unpinFile, setMessagePinned } = require('../lib/context-controls');
 
 function createCommands(rt) {
   const settings = () => rt.config.settings();
@@ -80,14 +80,41 @@ function createCommands(rt) {
       return { ok: true, empty: isEmptyLedger(built), rendered: renderLedger(built) };
     },
 
-    'memory.get': ({ cwd } = {}) => {
-      const scope = cwd === undefined ? (rt.session.view.mode === 'chat' ? null : rt.config.cwd) : cwd;
-      return {
-        ok: true,
-        path: rt.tools.memoryPath(scope || null),
-        content: rt.tools.readMemory(scope || null),
-        inRepo: scope ? workspace.hasWorkspace(scope) : false,
-      };
+    // Chat mode's memory is user-wide; code mode's belongs to the project.
+    'memory.get': ({ cwd, mode } = {}) => rt.memory.get(cwd !== undefined ? cwd : (mode || rt.session.view.mode) === 'chat' ? null : rt.config.cwd),
+
+    compact: async ({ model } = {}) => {
+      if (rt.run.abort) return { ok: false, error: 'A run is in progress. Stop it first.' };
+      const controller = new AbortController();
+      rt.run.abort = controller;
+      rt.run.stopRequested = false;
+      try {
+        const result = await rt.compaction.compactConversation(model || rt.providers.resolve().model, controller.signal);
+        if (result.ok) await rt.chatJobs.persistChat();
+        return result;
+      } catch (err) {
+        if (err.name === 'AbortError') return { ok: false, error: 'Compaction stopped.' };
+        return { ok: false, error: rt.providers.redact(String(err.message || err)) };
+      } finally {
+        if (rt.run.abort === controller) rt.run.abort = null;
+      }
+    },
+
+    'context.inspect': (options = {}) => rt.inspector.inspect(options),
+
+    // Pinned files are re-read into the system prompt every turn; pinned
+    // messages survive compaction verbatim.
+    'context.control': async ({ action, path: target, index, value = true, cwd = rt.config.cwd } = {}) => {
+      try {
+        if (action === 'pin-file') rt.session.contextState = pinFile(rt.session.contextState, cwd, target).state;
+        else if (action === 'unpin-file') rt.session.contextState = unpinFile(rt.session.contextState, cwd, target).state;
+        else if (action === 'pin-message') setMessagePinned(rt.session.conversation, Number(index), value !== false);
+        else return { ok: false, error: `Unknown context control action "${action}".` };
+        await rt.chatJobs.persistChat();
+        return { ok: true, state: { ...rt.session.contextState } };
+      } catch (error) {
+        return { ok: false, error: error.message };
+      }
     },
 
     'history.list': (options) => ({ ok: true, chats: rt.history.list(options) }),

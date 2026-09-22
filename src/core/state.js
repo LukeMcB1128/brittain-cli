@@ -177,11 +177,11 @@ function createState(rt) {
     });
   }
 
-  // System prompt and tool schemas are added by prompts.js (M4); until then
-  // the conversation alone is measured.
+  // The size of the next request: system prompt and tool schemas included,
+  // since both are sent every time but live outside the conversation.
   function currentConversationTokens(model = session.view.model) {
     const view = { ...session.view, model: model || session.view.model };
-    const overhead = rt.prompts?.fixedOverheadTokens ? rt.prompts.fixedOverheadTokens(view.cwd, view.model, view.mode) : 0;
+    const overhead = rt.prompts.fixedOverheadTokens(view.cwd, view.model, view.mode);
     return overhead + estimateContextTokens(modelReadyMessages(session.conversation));
   }
 

@@ -50,6 +50,24 @@ function createChatJobs(rt) {
     try { await saveChatJob(job); } catch {}
   }
 
+  // Outside a run — after /compact or a pin — save the chat that is loaded,
+  // if it has been saved before.
+  async function persistChat() {
+    if (!rt.chatId || rt.chatJobs.active) return;
+    const { historyStore } = rt.services;
+    const loaded = historyStore.load(rt.chatId);
+    if (!loaded.ok) return;
+    try {
+      await historyStore.save({
+        ...loaded.chat,
+        runMetrics: rt.session.usage,
+        spend: rt.session.spend,
+        contextState: rt.session.contextState,
+        timestamp: new Date().toISOString(),
+      }, rt.session.conversation);
+    } catch {}
+  }
+
   async function executeChatJob(job) {
     const { model, text, mode, cwd, autoApprove, think } = job;
     const runMode = mode === 'chat' ? 'chat' : 'code';
@@ -61,7 +79,7 @@ function createChatJobs(rt) {
     // conversations while a run holds an abort controller.
     rt.run.abort = new AbortController();
     rt.state.rememberConversationView({ model, cwd, mode: runMode });
-    if (rt.compaction?.maybePrecompact) await rt.compaction.maybePrecompact(model);
+    await rt.compaction.maybePrecompact(model);
     const contextLength = await rt.models.effectiveContext(model);
 
     if (runMode === 'code') await rt.services.checkpoints.create(cwd); // silent; enables /undo
@@ -140,7 +158,7 @@ function createChatJobs(rt) {
     return final;
   }
 
-  return { persistActive, saveChatJob, submitChat };
+  return { persistActive, persistChat, saveChatJob, submitChat };
 }
 
 module.exports = { createChatJobs };

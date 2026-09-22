@@ -28,6 +28,9 @@ const { createHistory } = require('./history');
 const { createTitles } = require('./title');
 const { createCheckpoints } = require('./checkpoints');
 const { createCommands } = require('./commands');
+const { createCompactionRunner } = require('./compaction-runner');
+const { createContextInspector } = require('./context-inspector');
+const { createMemory } = require('./memory');
 
 // overrides: per-invocation choices that must not persist (--provider,
 // --model, --mode, --cwd).
@@ -90,12 +93,16 @@ function createRuntime({ host, env = process.env, overrides = {} } = {}) {
   rt.approvalFlow = createApprovals(rt);
   rt.questionFlow = createQuestions(rt);
   rt.agentLoop = createAgentLoop(rt);
+  rt.compaction = createCompactionRunner(rt);
+  rt.inspector = createContextInspector(rt);
+  rt.memory = createMemory(rt);
   rt.titles = createTitles(rt);
   rt.history = createHistory(rt);
   rt.services.checkpoints = createCheckpoints(rt);
   const chatJobs = createChatJobs(rt);
   rt.chatJobs.persistActive = chatJobs.persistActive;
   rt.chatJobs.submitChat = chatJobs.submitChat;
+  rt.chatJobs.persistChat = chatJobs.persistChat;
 
   // One call, no tools: the whole of `brittain ask`.
   async function ask({ prompt, think } = {}) {

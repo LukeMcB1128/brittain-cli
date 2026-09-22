@@ -173,10 +173,6 @@ function createAgentLoop(rt) {
           break;
         }
         psychosisRetried = true;
-        if (!rt.compaction) {
-          sink().info('Stopping this turn: recovery needs compaction, which is unavailable.');
-          break;
-        }
         sink().state('auto-compacting (recovering)…');
         const c = await rt.compaction.compactConversation(model);
         if (!c.ok) {
@@ -300,7 +296,7 @@ function createAgentLoop(rt) {
       // Auto-compaction protects generation quality before the window
       // overflows (glitch tokens, thought-leak into files), so this is a
       // quality guard, not just a size guard.
-      if (contextLength && rt.compaction) {
+      if (contextLength) {
         const measured = lastStats ? lastStats.promptTokens + lastStats.evalTokens : 0;
         // The last model statistics do not include tool results that arrived
         // after generation. Estimate the request as it exists now, including
