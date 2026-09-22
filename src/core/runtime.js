@@ -14,9 +14,20 @@ const { createRunSink } = require('../lib/run-sink');
 const { createProviders, isMode } = require('../lib/providers');
 const { createHistoryStore } = require('../lib/history-store');
 const { createLedgerStore } = require('../lib/ledger-store');
+const { createDiffService } = require('../lib/diff-service');
+const { createToolExecutor, gitRun } = require('../lib/tools');
 const { createModels } = require('./models');
 const { createState } = require('./state');
 const { createStream } = require('./stream');
+const { createPrompts } = require('./prompts');
+const { createApprovals } = require('./approvals');
+const { createQuestions } = require('./questions');
+const { createAgentLoop } = require('./agent-loop');
+const { createChatJobs } = require('./chat-jobs');
+const { createHistory } = require('./history');
+const { createTitles } = require('./title');
+const { createCheckpoints } = require('./checkpoints');
+const { createCommands } = require('./commands');
 
 // overrides: per-invocation choices that must not persist (--provider,
 // --model, --mode, --cwd).
@@ -34,21 +45,31 @@ function createRuntime({ host, env = process.env, overrides = {} } = {}) {
     run: { id: '', abort: null, stopRequested: false },
   };
 
+  const live = { provider: overrides.provider || '', model: overrides.model || '' };
   rt.config = {
     dataDir: host.dataDir,
+    // What is on disk, without per-invocation overrides.
+    stored: () => loadSettings(host.dataDir),
     // Read fresh each time so a change saved by another command is seen, then
     // the per-invocation overrides applied on top.
     settings() {
       const stored = loadSettings(host.dataDir);
-      if (!overrides.provider && !overrides.model) return stored;
-      const provider = overrides.provider || stored.provider;
-      const providers = overrides.model
-        ? { ...stored.providers, [provider]: { ...stored.providers[provider], model: overrides.model } }
+      if (!live.provider && !live.model) return stored;
+      const provider = live.provider || stored.provider;
+      const providers = live.model
+        ? { ...stored.providers, [provider]: { ...stored.providers[provider], model: live.model } }
         : stored.providers;
       return { ...stored, provider, providers };
     },
     save(next) {
+      // A saved choice replaces an override for the same thing.
+      if (next.provider) live.provider = '';
+      live.model = '';
       return saveSettings(host.dataDir, next);
+    },
+    override({ provider, model } = {}) {
+      if (provider !== undefined) live.provider = provider;
+      if (model !== undefined) live.model = model;
     },
     cwd: overrides.cwd || process.cwd(),
     mode: overrides.mode === 'chat' ? 'chat' : overrides.mode === 'code' ? 'code' : '',
@@ -56,32 +77,37 @@ function createRuntime({ host, env = process.env, overrides = {} } = {}) {
 
   rt.sink = createRunSink({ meta: () => ({ chatId: rt.chatId, runId: rt.run.id }) });
   rt.providers = createProviders({ getSettings: () => rt.config.settings(), secrets: host.secrets, env });
+  rt.tools = createToolExecutor({ dataDir: host.dataDir });
   rt.services = {
     historyStore: createHistoryStore({ userDataDir: () => host.dataDir, runtimeMetadata: (model) => rt.models.runtimeMetadata(model) }),
     ledgerStore: createLedgerStore({ userDataDir: () => host.dataDir }),
+    diffService: createDiffService({ gitRun }),
   };
   rt.models = createModels(rt);
   rt.state = createState(rt);
   rt.stream = createStream(rt);
-
-  function beginRun() {
-    rt.run.id = `run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    rt.run.abort = new AbortController();
-    rt.run.stopRequested = false;
-    return rt.run.abort;
-  }
-
-  function endRun() {
-    rt.run.abort = null;
-  }
+  rt.prompts = createPrompts(rt);
+  rt.approvalFlow = createApprovals(rt);
+  rt.questionFlow = createQuestions(rt);
+  rt.agentLoop = createAgentLoop(rt);
+  rt.titles = createTitles(rt);
+  rt.history = createHistory(rt);
+  rt.services.checkpoints = createCheckpoints(rt);
+  const chatJobs = createChatJobs(rt);
+  rt.chatJobs.persistActive = chatJobs.persistActive;
+  rt.chatJobs.submitChat = chatJobs.submitChat;
 
   // One call, no tools: the whole of `brittain ask`.
   async function ask({ prompt, think } = {}) {
+    if (rt.run.abort) return { ok: false, error: 'A request is already running.' };
     const provider = rt.providers.resolve();
     const model = provider.model;
     if (!model) return { ok: false, error: `No model selected for ${provider.label}. Run \`brittain provider ${provider.mode}\` to pick one.` };
     const settings = rt.config.settings();
-    const controller = beginRun();
+    rt.run.id = `run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    rt.run.stopRequested = false;
+    const controller = new AbortController();
+    rt.run.abort = controller;
     const startedAt = Date.now();
     try {
       const numCtx = await rt.models.effectiveContext(model);
@@ -109,24 +135,19 @@ function createRuntime({ host, env = process.env, overrides = {} } = {}) {
       rt.sink.done({ ok: false, error, stopped });
       return { ok: false, error, stopped };
     } finally {
-      endRun();
+      rt.run.abort = null;
     }
   }
 
-  function stop() {
-    rt.run.stopRequested = true;
-    rt.run.abort?.abort();
-    return { ok: true };
-  }
-
-  const commands = { ask, stop };
+  const commands = { ...createCommands(rt), ask };
+  rt.commands = commands;
 
   return {
     rt,
     commands,
     events: { subscribe: (listener) => rt.sink.subscribe(listener) },
     shutdown() {
-      stop();
+      commands.stop();
     },
   };
 }

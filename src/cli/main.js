@@ -9,6 +9,7 @@ const { redactEndpoint } = require('../lib/providers/brittain');
 const { createPrompter } = require('./prompts');
 const { ensureSettings, setupProvider } = require('./first-run');
 const { createRuntime } = require('../core/runtime');
+const { runPrintMode } = require('./print-mode');
 
 const HELP = `brittain ${pkg.version} — a lightweight terminal coding agent
 
@@ -28,7 +29,14 @@ Commands:
 Options:
   --provider <mode>               Use this provider for one invocation (not saved)
   --model <name>                  Use this model for one invocation (not saved)
-  --show-thinking                 Print the model's reasoning (dimmed, on stderr)
+  --mode code|chat                Code mode (tools, working directory) or chat mode
+  --cwd <dir>                     Working directory (default: current directory)
+  --yes                           Allow edits and commands without asking
+                                  (destructive, sensitive, and payment actions
+                                  are never automatic)
+  --output-format <f>             With -p: text (default), json, or stream-json
+  --verbose                       With -p: show tool calls on stderr
+  --show-thinking                 With ask: print the model's reasoning (stderr)
   -h, --help                      Show this help
   -v, --version                   Print the version
 `;
@@ -215,6 +223,16 @@ async function main(argv, {
       options: {
         help: { type: 'boolean', short: 'h' },
         version: { type: 'boolean', short: 'v' },
+        ...(!subcommand ? {
+          print: { type: 'string', short: 'p' },
+          provider: { type: 'string' },
+          model: { type: 'string' },
+          mode: { type: 'string' },
+          cwd: { type: 'string' },
+          yes: { type: 'boolean' },
+          'output-format': { type: 'string' },
+          verbose: { type: 'boolean' },
+        } : {}),
         ...(subcommand === 'login' || subcommand === 'logout' ? { provider: { type: 'string' } } : {}),
         ...(subcommand === 'ask' ? {
           provider: { type: 'string' },
@@ -232,13 +250,17 @@ async function main(argv, {
     io.out(pkg.version);
     return 0;
   }
-  if (values.help || !subcommand) {
+  if (values.help || (!subcommand && values.print === undefined)) {
     io.out(HELP);
     return 0;
   }
 
   const ctx = context({ env, stdin, stderr, keychain });
   try {
+    if (!subcommand) {
+      const prompt = [values.print, ...positionals].filter(Boolean).join(' ');
+      return await runPrintMode({ prompt, options: values, host: ctx.host, env, stdout, stderr, io });
+    }
     if (subcommand === 'config') return await configCommand(positionals, ctx, io);
     if (subcommand === 'login') return await loginCommand(values, ctx, io);
     if (subcommand === 'logout') return await logoutCommand(values, ctx, io);
