@@ -208,7 +208,7 @@ content is appended as data (as the source does), not as instructions.
 
 | Mode id | Label | Endpoint | Key | Transport | Model |
 |---|---|---|---|---|---|
-| `brittain` | Brittain | built in, never shown (§5.2) | optional `BRITTAIN_API_KEY` / `brittain login` | per §5.2 (default OpenAI-compatible) | default `brittain-4` (placeholder) |
+| `brittain` | Brittain | built in, never shown (§5.2) | optional `BRITTAIN_API_KEY` / `brittain login` | per §5.2 (default OpenAI-compatible) | default `run4c-step-0116` |
 | `openai` | OpenAI-compatible | user-supplied base URL (OpenRouter, Z.AI, Groq, DeepSeek, vLLM, …) | user-supplied, stored in keychain | `openAITransport` | user picks from `/v1/models` |
 | `ollama` | Ollama | default `http://127.0.0.1:11434`, editable | none | `ollamaTransport` | user picks from `/api/tags` |
 
@@ -220,7 +220,7 @@ content is appended as data (as the source does), not as instructions.
   {
     "provider": "brittain",
     "providers": {
-      "brittain": { "model": "brittain-4" },
+      "brittain": { "model": "run4c-step-0116" },
       "openai":   { "endpoint": "https://openrouter.ai/api/v1", "model": "…" },
       "ollama":   { "endpoint": "http://127.0.0.1:11434", "model": "…" }
     }
@@ -241,11 +241,11 @@ content is appended as data (as the source does), not as instructions.
   a per-mode default when unknown. Keep the source's `num_ctx` handling for
   Ollama.
 
-### 5.2 The Brittain mode (scaffold; human finishes the server side)
+### 5.2 The Brittain mode
 
 - Endpoint lives in one place: `src/lib/providers/brittain.js`, exported as a
-  constant (placeholder `https://api.brittain.invalid/v1` until the human fills
-  it in). A dev-only override `BRITTAIN_API_URL` is honoured but never
+  constant (`https://api.brittain.app/v1`). A dev-only override
+  `BRITTAIN_API_URL` is honoured but never
   documented in `--help`.
 - It is **not** written to `settings.json`, **not** shown by `config get`,
   `/provider`, `/context`, `--verbose`, or error messages. Reuse

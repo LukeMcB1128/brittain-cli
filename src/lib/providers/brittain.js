@@ -9,9 +9,9 @@
 // the constant below. Access control has to live on the server (keys, rate
 // limits), never in the hope that a URL stays unknown.
 
-// Placeholder until the server is live. BRITTAIN_API_URL overrides it for
-// development and tests; it is deliberately left out of --help.
-const BRITTAIN_ENDPOINT = 'https://api.brittain.invalid/v1';
+// BRITTAIN_API_URL overrides the production endpoint for development and tests.
+// The endpoint is deliberately left out of --help.
+const BRITTAIN_ENDPOINT = 'https://api.brittain.app/v1';
 
 // Which wire protocol the Brittain server speaks: 'openai' or 'ollama'.
 // Switching to an Ollama-shaped server is a one-line change here.
@@ -21,11 +21,12 @@ const BRITTAIN_TRANSPORT = 'openai';
 const AUTH_HEADER = 'Authorization';
 const AUTH_SCHEME = 'Bearer';
 
-const DEFAULT_MODEL = 'brittain-4';
+const DEFAULT_MODEL = 'run4c-step-0116';
 
 // Used by the core where Brittain 4 behaves differently (context, thinking).
 function isBrittain4Model(model) {
-  return /(?:^|[/_-])brittain\s*[-_]?4(?:$|[/_.:-])/i.test(String(model || ''))
+  return String(model || '') === DEFAULT_MODEL
+    || /(?:^|[/_-])brittain\s*[-_]?4(?:$|[/_.:-])/i.test(String(model || ''))
     || /^brittain4$/i.test(String(model || ''));
 }
 

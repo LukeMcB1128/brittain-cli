@@ -104,7 +104,7 @@ test('/provider shows a picker and switches directly', async (t) => {
   const out = await s.run('/provider');
   assert.match(out, /brittain\s+Brittain/);
   assert.match(out, /ollama\s+Ollama · qwen3:8b/);
-  assert.match(await s.run('/provider brittain'), /Provider: brittain \(Brittain\) · model: brittain-4/);
+  assert.match(await s.run('/provider brittain'), /Provider: brittain \(Brittain\) · model: run4c-step-0116/);
   assert.equal(s.runtime.rt.config.stored().provider, 'brittain');
   assert.match(await s.run('/provider nope'), /Unknown provider/);
 });

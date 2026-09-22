@@ -18,7 +18,7 @@ const path = require('path');
 const PROVIDER_MODES = Object.freeze(['brittain', 'openai', 'ollama']);
 
 const DEFAULT_PROVIDERS = Object.freeze({
-  brittain: Object.freeze({ model: 'brittain-4' }),
+  brittain: Object.freeze({ model: 'run4c-step-0116' }),
   openai: Object.freeze({ endpoint: '', model: '' }),
   ollama: Object.freeze({ endpoint: 'http://127.0.0.1:11434', model: '' }),
 });
@@ -105,9 +105,12 @@ function normalizeProviders(input) {
   const brittain = pick('brittain');
   const openai = pick('openai');
   const ollama = pick('ollama');
+  const storedBrittainModel = cleanText(brittain.model, 200);
   return {
+    // The old default was a base-model ID. Move saved defaults to the served adapter.
     // Deliberately no endpoint field: whatever was passed in is discarded.
-    brittain: { model: cleanText(brittain.model, 200) || DEFAULT_PROVIDERS.brittain.model },
+    brittain: { model: !storedBrittainModel || storedBrittainModel === 'brittain-4'
+      ? DEFAULT_PROVIDERS.brittain.model : storedBrittainModel },
     openai: {
       endpoint: safeEndpoint(openai.endpoint, ''),
       model: cleanText(openai.model, 200),

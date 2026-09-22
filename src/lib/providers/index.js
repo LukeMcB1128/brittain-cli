@@ -24,7 +24,7 @@ const MODE_IDS = Object.freeze(Object.keys(MODES));
 // defaults stand in for the source's configured cap, since there the provider
 // enforces its own limit and the number only drives local budgeting.
 const DEFAULT_CONTEXT = Object.freeze({
-  brittain: 131_072,
+  brittain: 32_768,
   openai: 131_072,
   ollama: 8192,
 });

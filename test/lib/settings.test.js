@@ -79,9 +79,14 @@ test('first run starts in brittain mode with a record per provider', () => {
   const settings = normalizeSettings({});
   assert.equal(settings.provider, 'brittain');
   assert.deepEqual(Object.keys(settings.providers), ['brittain', 'openai', 'ollama']);
-  assert.equal(settings.providers.brittain.model, 'brittain-4');
+  assert.equal(settings.providers.brittain.model, 'run4c-step-0116');
   assert.equal(settings.providers.ollama.endpoint, 'http://127.0.0.1:11434');
   assert.equal(normalizeSettings({ provider: 'anthropic' }).provider, 'brittain', 'an unknown value falls back to the default');
+});
+
+test('saved Brittain base-model defaults move to the served adapter', () => {
+  assert.equal(normalizeSettings({ providers: { brittain: { model: 'brittain-4' } } }).providers.brittain.model, 'run4c-step-0116');
+  assert.equal(normalizeSettings({ providers: { brittain: { model: 'custom-adapter' } } }).providers.brittain.model, 'custom-adapter');
 });
 
 test('the Brittain endpoint is never stored', () => {
