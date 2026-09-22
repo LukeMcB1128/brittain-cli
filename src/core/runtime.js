@@ -31,6 +31,7 @@ const { createCommands } = require('./commands');
 const { createCompactionRunner } = require('./compaction-runner');
 const { createContextInspector } = require('./context-inspector');
 const { createMemory } = require('./memory');
+const { createExport } = require('./export');
 
 // overrides: per-invocation choices that must not persist (--provider,
 // --model, --mode, --cwd).
@@ -96,6 +97,7 @@ function createRuntime({ host, env = process.env, overrides = {} } = {}) {
   rt.compaction = createCompactionRunner(rt);
   rt.inspector = createContextInspector(rt);
   rt.memory = createMemory(rt);
+  rt.exporter = createExport(rt);
   rt.titles = createTitles(rt);
   rt.history = createHistory(rt);
   rt.services.checkpoints = createCheckpoints(rt);

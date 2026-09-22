@@ -15,6 +15,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const readline = require('readline');
+const { spawnSync } = require('child_process');
 const { createRenderer } = require('./render');
 const { createSlash } = require('./slash');
 
@@ -61,6 +62,7 @@ function createRepl({
   mode = 'code',
   autoApprove = false,
   setupProvider = null,
+  pagerCommand = '',
   bridge,
   exit = () => {},
 }) {
@@ -95,9 +97,33 @@ function createRepl({
   let lastIdleInterrupt = 0;
   let closed = false;
 
+  // Long output goes through $PAGER (less -R by default) when it would
+  // scroll off a terminal. The pager reads keys from the terminal itself, so
+  // readline steps aside while it runs.
+  function page(text) {
+    const rows = output.rows || 0;
+    const lines = String(text).split('\n');
+    if (!terminal || !rows || lines.length < rows - 2) {
+      renderer.line(text);
+      return;
+    }
+    const pager = pagerCommand || 'less -R';
+    rl.pause();
+    input.setRawMode?.(false);
+    try {
+      const result = spawnSync('sh', ['-c', pager], { input: String(text) + '\n', stdio: ['pipe', 'inherit', 'inherit'] });
+      if (result.error || result.status === 127) renderer.line(text);
+    } finally {
+      input.setRawMode?.(true);
+      rl.resume();
+    }
+  }
+
   const ui = {
     style,
     state,
+    color,
+    page,
     line: (text) => renderer.line(text),
     // A numbered pick that reads its answer from this same interface.
     pick: async (question, items, { current } = {}) => {

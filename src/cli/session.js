@@ -101,6 +101,7 @@ async function startRepl({ options, positionals, env, stdin, stdout, stderr, key
     mode,
     autoApprove: !!options.yes || settings.autoApprove,
     bridge,
+    pagerCommand: env.PAGER || '',
     exit: () => resolveExit(0),
     setupProvider: (target, ui) => setupProvider(target, {
       dataDir: host.dataDir, providers: rt.providers, secrets: host.secrets, prompter: ui.prompter, out: ui.line,

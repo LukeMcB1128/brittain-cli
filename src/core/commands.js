@@ -102,6 +102,8 @@ function createCommands(rt) {
 
     'context.inspect': (options = {}) => rt.inspector.inspect(options),
 
+    export: (options) => rt.exporter.exportChat(options),
+
     // Pinned files are re-read into the system prompt every turn; pinned
     // messages survive compaction verbatim.
     'context.control': async ({ action, path: target, index, value = true, cwd = rt.config.cwd } = {}) => {

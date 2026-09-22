@@ -5,9 +5,13 @@
 //
 // Every handler goes through runtime.commands — the same map print mode uses —
 // and reports through `ui`, which the REPL provides:
-//   ui.line(text), ui.style, ui.pick(question, items, opts), ui.state
+//   ui.line(text), ui.style, ui.pick(question, items, opts), ui.state,
+//   ui.page(text) — print, through a pager when taller than the terminal
+//   ui.color — whether output is colored
 
 const { MODE_IDS } = require('../lib/providers');
+const { gitRun } = require('../lib/tools');
+const { formatContext } = require('../core/context-inspector');
 
 function parseSlash(input) {
   const text = String(input || '').trim();
@@ -145,6 +149,103 @@ function createSlash({ runtime, ui, setupProvider }) {
       },
     },
     {
+      name: 'compact',
+      usage: '/compact',
+      summary: 'Summarize older turns to free context',
+      run: async () => {
+        ui.line(ui.style.dim('· compacting…'));
+        const result = await commands.compact();
+        ui.line(result.ok ? `Compacted: ${result.description}` : result.error);
+      },
+    },
+    {
+      name: 'context',
+      usage: '/context',
+      summary: 'What the next request will send, with token counts',
+      run: async () => {
+        const result = await commands['context.inspect']({ mode: ui.state.mode });
+        ui.page(formatContext(result, { style: ui.style }));
+      },
+    },
+    {
+      name: 'usage',
+      usage: '/usage',
+      summary: 'Tokens and tool calls in this chat',
+      run: () => {
+        const usage = commands.usage();
+        const m = usage.metrics;
+        const n = (value) => Number(value || 0).toLocaleString();
+        ui.line(`${n(usage.main.prompt)} in · ${n(usage.main.gen)} out over ${n(usage.main.calls)} model calls`);
+        ui.line(`${n(usage.messages)} messages (~${n(usage.approxTokens)} tokens) · context ${n(usage.context.tokens)} of ${n(usage.context.limit)}`);
+        ui.line(ui.style.dim(`tool calls ${n(m.toolCalls)} · errors ${n(m.toolErrors)} · denied ${n(m.deniedTools)} · compactions ${n(m.compactions)} · peak context ${n(m.peakContextTokens)}`));
+      },
+    },
+    {
+      name: 'cost',
+      usage: '/cost',
+      summary: 'What this chat has cost',
+      run: () => {
+        const cost = commands.cost();
+        ui.line(cost.local ? 'Local model — there is no bill.' : cost.text);
+      },
+    },
+    {
+      name: 'ledger',
+      usage: '/ledger',
+      summary: 'Files changed, commands run, and errors, read off the tool record',
+      run: () => {
+        const ledger = commands.ledger();
+        ui.page(ledger.empty ? 'Nothing recorded in this chat yet.' : ledger.rendered);
+      },
+    },
+    {
+      name: 'memory',
+      usage: '/memory',
+      summary: 'Show memory and its path',
+      run: () => {
+        const memory = commands['memory.get']({ mode: ui.state.mode });
+        const where = memory.globalChat ? 'Chat mode (user-wide)' : memory.inRepo ? 'this project (in the repository)' : 'this project';
+        ui.line(ui.style.dim(`Memory for ${where}: ${memory.path}`));
+        ui.page(memory.content.trim() || '(nothing remembered yet)');
+      },
+    },
+    {
+      name: 'diff',
+      usage: '/diff',
+      summary: 'Colored git diff of the working tree',
+      run: async () => {
+        const cwd = rt.config.cwd;
+        const color = `--color=${ui.color ? 'always' : 'never'}`;
+        let diff = await gitRun(['diff', 'HEAD', color], cwd);
+        // A repository with no commits yet has no HEAD to compare against.
+        if (!diff.ok) diff = await gitRun(['diff', color], cwd);
+        if (!diff.ok) return ui.line(diff.err || 'Not a Git repository.');
+        const untracked = await gitRun(['ls-files', '--others', '--exclude-standard'], cwd);
+        const newFiles = untracked.ok ? untracked.out.split('\n').filter(Boolean) : [];
+        const text = [diff.out.trimEnd(), newFiles.length ? `Untracked: ${newFiles.join(', ')}` : ''].filter(Boolean).join('\n\n');
+        ui.page(text || 'No changes.');
+      },
+    },
+    {
+      name: 'commit',
+      usage: '/commit <msg>',
+      summary: 'Stage all and commit',
+      run: async ({ rest }) => {
+        if (!rest) return ui.line('Usage: /commit <message>');
+        const result = await commands['git.commit']({ message: rest });
+        ui.line(result.ok ? result.out : result.error);
+      },
+    },
+    {
+      name: 'undo',
+      usage: '/undo',
+      summary: 'Restore the last checkpoint',
+      run: async () => {
+        const result = await commands['checkpoint.undo']();
+        ui.line(result.ok ? `Restored the working tree to the checkpoint from ${result.restoredFrom} (${result.changes}).` : result.error);
+      },
+    },
+    {
       name: 'history',
       usage: '/history',
       summary: 'List/load/delete saved chats',
@@ -162,6 +263,28 @@ function createSlash({ runtime, ui, setupProvider }) {
         if (!result.ok) return ui.line(result.error);
         ui.state.mode = result.chat.mode === 'chat' ? 'chat' : 'code';
         ui.line(`Loaded "${result.chat.title}" (${result.chat.conversation.length} messages).`);
+      },
+    },
+    {
+      name: 'export',
+      usage: '/export [path]',
+      summary: 'Markdown export',
+      run: ({ rest }) => {
+        const result = commands.export({ path: rest || undefined });
+        ui.line(result.ok ? `Exported to ${result.path}` : result.error);
+      },
+    },
+    {
+      name: 'tools',
+      usage: '/tools',
+      summary: 'Tools with risky/sensitive/destructive flags',
+      run: () => {
+        const { tools } = commands['tools.list']({ mode: ui.state.mode });
+        for (const tool of tools) {
+          const flags = [tool.isRisky && 'risky', tool.isSensitive && 'sensitive', tool.isDestructive && 'destructive'].filter(Boolean);
+          ui.line(`${tool.name.padEnd(16)} ${ui.style.dim(flags.join(', '))}`.trimEnd());
+        }
+        ui.line(ui.style.dim('Destructive commands, sensitive reads, and payments are caught per call and always ask.'));
       },
     },
   ];
