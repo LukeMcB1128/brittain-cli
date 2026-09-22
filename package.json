@@ -1,0 +1,26 @@
+{
+  "name": "brittain-cli",
+  "version": "0.0.0",
+  "description": "Lightweight terminal coding agent — the CLI edition of Brittain Code",
+  "author": "Luke Brittain",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/LukeMcB1128/brittain-cli.git"
+  },
+  "bin": {
+    "brittain": "bin/brittain.js"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node scripts/run-tests.js"
+  }
+}
