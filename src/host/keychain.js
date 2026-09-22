@@ -178,5 +178,7 @@ module.exports = {
   SERVICE,
   createSecrets,
   detectKeychain,
+  macKeychain,
   quoteForSecurity,
+  secretServiceKeychain,
 };

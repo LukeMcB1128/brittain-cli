@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const { createSecrets, detectKeychain, quoteForSecurity, SERVICE } = require('../../src/host/keychain');
+const { createSecrets, detectKeychain, macKeychain, quoteForSecurity, SERVICE } = require('../../src/host/keychain');
 
 function tempDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'bc-keychain-'));
@@ -14,6 +14,9 @@ function tempDir() {
 
 // A fake `security` / `secret-tool` that records every call and keeps an
 // in-memory store, so the tests can check what crossed argv versus stdin.
+// The macOS tests build the backend directly (macKeychain) rather than through
+// detectKeychain, which also checks that /usr/bin/security exists — true on a
+// Mac, false on the Linux CI runners.
 function fakeRunner(parseSet) {
   const calls = [];
   const store = new Map();
@@ -47,7 +50,7 @@ const macParse = (_args, input) => {
 test('macOS: a saved key goes to the Keychain through stdin, never argv, and not to disk', () => {
   const dataDir = tempDir();
   const fake = fakeRunner(macParse);
-  const secrets = createSecrets({ dataDir, env: {}, platform: 'darwin', run: fake.run });
+  const secrets = createSecrets({ dataDir, env: {}, keychain: macKeychain(fake.run) });
   const secret = 'sk-live-"quoted"\\value';
 
   const saved = secrets.set('openaiApiKey', secret);
@@ -101,7 +104,7 @@ test('removing a key clears both the keychain and any file copy', () => {
   const dataDir = tempDir();
   createSecrets({ dataDir, env: {}, keychain: null }).set('openaiApiKey', 'old-file-copy');
   const fake = fakeRunner(macParse);
-  const secrets = createSecrets({ dataDir, env: {}, platform: 'darwin', run: fake.run });
+  const secrets = createSecrets({ dataDir, env: {}, keychain: macKeychain(fake.run) });
   assert.equal(secrets.get('openaiApiKey'), 'old-file-copy', 'a key saved before the keychain still works');
   secrets.set('openaiApiKey', 'new');
   assert.equal(JSON.parse(fs.readFileSync(path.join(dataDir, 'credentials.json'), 'utf8')).openaiApiKey, undefined);
