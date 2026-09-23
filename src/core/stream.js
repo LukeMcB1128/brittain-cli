@@ -152,7 +152,9 @@ function createStream(rt) {
     return { content, thinking, toolCalls, stats };
   }
 
-  async function completeText({ model, messages, signal, think, numCtx, temperature, maxTokens, usageBucket }) {
+  // `details` returns what came back beside the text, for a caller that has to
+  // explain an unusable answer (compaction records why it rejected a summary).
+  async function completeText({ model, messages, signal, think, numCtx, temperature, maxTokens, usageBucket, details = false }) {
     const result = await streamChat(
       model,
       messages,
@@ -166,6 +168,7 @@ function createStream(rt) {
       maxTokens,
     );
     if (usageBucket && result.stats) rt.state.recordUsage(usageBucket, result.stats);
+    if (details) return { content: result.content.trim(), thinkingChars: (result.thinking || '').length, evalTokens: result.stats?.evalTokens || 0 };
     return result.content.trim();
   }
 

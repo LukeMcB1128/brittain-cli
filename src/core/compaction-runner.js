@@ -36,6 +36,22 @@ const { estimateTokens, fitToWindow, modelReadyMessages } = require('./context-h
 
 const SUMMARIZER_RESULT_CHARS = 3000;
 
+// Why the last summary attempt was thrown away, in a few words: "empty,
+// 2,300 chars of thinking" says the answer went to the reasoning trace;
+// "too short, 210 of 610 tokens" says the model stopped early.
+function rejectedReason(check, attempts) {
+  const last = attempts[attempts.length - 1] || {};
+  const n = (value) => Number(value || 0).toLocaleString();
+  if (check.reason === 'empty') {
+    return last.thinkingChars ? `empty, ${n(last.thinkingChars)} chars of thinking` : 'empty reply';
+  }
+  if (check.reason === 'too short') {
+    const capped = last.evalTokens && last.maxTokens && last.evalTokens >= last.maxTokens ? ', hit max_tokens' : '';
+    return `too short, ${n(check.tokens)} of ${n(check.required)} tokens${capped}`;
+  }
+  return check.reason || '';
+}
+
 function createCompactionRunner(rt) {
   const sink = () => rt.sink;
 
@@ -165,20 +181,37 @@ function createCompactionRunner(rt) {
       let summary = '';
       let check = { ok: false, reason: 'empty', tokens: 0, required: 0 };
       let retries = 0;
+      // CLI addition: what each rejected attempt looked like. A session
+      // reported "no usable summary" with nothing to say why; the record goes
+      // into the run's ledger file and the reason onto the status line.
+      const attempts = [];
       // Ask for the room the record can actually hold, and give one
       // corrective retry when the answer is too thin.
       for (let attempt = 0; attempt < 2; attempt++) {
-        summary = await rt.stream.completeText({
+        const maxTokens = Math.max(512, summaryRoom);
+        const reply = await rt.stream.completeText({
           model,
           messages: msgs,
           signal,
           think: useThink,
           numCtx: contextLength,
           temperature: 0.2,
-          maxTokens: Math.max(512, summaryRoom),
+          maxTokens,
           usageBucket: 'main',
+          details: true,
         });
+        summary = reply.content;
         check = validateSummary(summary, { sourceTokens, estimateTokens, minimumTokens: findingsFloor });
+        attempts.push({
+          reason: check.reason,
+          tokens: check.tokens,
+          required: check.required,
+          missing: check.missing,
+          maxTokens,
+          evalTokens: reply.evalTokens,
+          thinkingChars: reply.thinkingChars,
+          text: summary.slice(0, 4000),
+        });
         // Retry for missing headings too, but only once — a long summary
         // without them is still worth keeping.
         if (check.ok && check.structured) break;
@@ -265,9 +298,12 @@ function createCompactionRunner(rt) {
       // Written before returning: this is the last moment the tool record
       // exists in the conversation, and a failed write must not fail the
       // compaction.
-      const stored = isEmptyLedger(ledger)
+      const stored = isEmptyLedger(ledger) && !degraded
         ? null
-        : rt.services.ledgerStore.append(rt.session.id, ledger, { before, after: approxTokens, degraded, model });
+        : rt.services.ledgerStore.append(rt.session.id, ledger, {
+          before, after: approxTokens, degraded, model,
+          ...(degraded ? { rejectedSummaries: attempts } : {}),
+        });
 
       const result = {
         ok: true,
@@ -282,6 +318,7 @@ function createCompactionRunner(rt) {
         inTurn: !!kept.inTurn,
         retries,
         degraded,
+        ...(degraded ? { rejectedReason: rejectedReason(check, attempts) } : {}),
         unstructured: !degraded && !check.structured,
         ledgerEntries: isEmptyLedger(ledger)
           ? 0
