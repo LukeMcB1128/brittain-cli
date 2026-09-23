@@ -16,7 +16,9 @@
 //     malformed: true,      // answer 500 "error parsing tool call" instead
 //     status, body,         // answer with this HTTP error instead
 //     split: n }            // stream text in pieces of n characters (default 4)
-// When the script runs out, the last turn repeats.
+// When the script runs out, the last turn repeats. `respond(request, index)`
+// replaces the script for tests whose request order is not fixed (compaction
+// can happen at any step): it receives the parsed request body.
 
 const http = require('node:http');
 
@@ -86,11 +88,14 @@ function createFakeProvider({
   contextLength = 32_768,
   capabilities = ['completion', 'tools'],
   templateKwargs = false,
+  respond = null,
 } = {}) {
   const requests = [];
   const chats = [];
   let turnIndex = 0;
-  const nextTurn = () => turns[Math.min(turnIndex++, turns.length - 1)] || { text: '' };
+  const nextTurn = (request) => (respond
+    ? respond(request, turnIndex++) || { text: '' }
+    : turns[Math.min(turnIndex++, turns.length - 1)] || { text: '' });
 
   const server = http.createServer((req, res) => {
     let body = '';
@@ -126,7 +131,7 @@ function createFakeProvider({
         let parsed = {};
         try { parsed = JSON.parse(body); } catch {}
         chats.push(parsed);
-        const turn = nextTurn();
+        const turn = nextTurn(parsed);
         if (turn.malformed) return send(500, { error: 'error parsing tool call: invalid character' });
         if (turn.status) return send(turn.status, turn.body || { error: { message: 'scripted failure' } });
         return url === '/api/chat' ? ollamaChat(res, turn, parsed.model) : openAIChat(res, turn, parsed.model);

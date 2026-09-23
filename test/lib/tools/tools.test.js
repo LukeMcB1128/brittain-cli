@@ -358,3 +358,19 @@ test('protected paths refuse mutation but allow reads and normal writes', async 
   const ok = await executeTool('write_file', { path: 'src/app.js', content: 'const a = 1;' }, cwd);
   assert.match(ok, /Wrote/);
 });
+
+test('a missing file names what is actually there instead of a bare ENOENT', async (t) => {
+  const cwd = tempProject();
+  t.after(() => fs.rmSync(cwd, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(cwd, 'src', 'api'), { recursive: true });
+  fs.writeFileSync(path.join(cwd, 'src', 'api', 'usersApi.ts'), 'x');
+  fs.writeFileSync(path.join(cwd, 'src', 'api', 'usersApi.test.ts'), 'x');
+  fs.mkdirSync(path.join(cwd, 'src', 'api', 'fixtures'));
+
+  const missing = await executeTool('read_file', { path: 'src/api/gamesApi.test.ts' }, cwd);
+  assert.equal(missing, 'Error: No such file: src/api/gamesApi.test.ts. src/api/ contains: fixtures/, usersApi.test.ts, usersApi.ts. Use an existing path, or search_files/browse_files to find the right one — do not guess.');
+  // A missing directory falls back to the nearest one that exists.
+  assert.match(await executeTool('get_file_lines', { path: 'src/nope/deeper/x.ts', start: 1 }, cwd), /^Error: No such file: src\/nope\/deeper\/x\.ts\. src\/ contains: api\/\./);
+  // Containment still comes first.
+  await assert.rejects(executeTool('read_file', { path: '../../etc/hosts' }, cwd), /Path escapes/);
+});

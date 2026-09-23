@@ -6,6 +6,12 @@
 // Pruned: the Jev branch, image-aware measurement (there are no images), and
 // the project-check count in the ledger total (run_project_check is not in
 // v1).
+//
+// Added: when the current turn alone is larger than the tail budget, the tail
+// is taken inside it — the request plus its newest complete steps (see
+// selectTurnTail in lib/compaction.js). In the app, Jev pruned tool results
+// within a turn for Brittain 4; without it, one long turn on a 32k model left
+// compaction nothing it was allowed to keep.
 
 const { estimateContextTokens } = require('../lib/context-estimator');
 const { pinnedMessagesPrompt } = require('../lib/context-controls');
@@ -15,6 +21,7 @@ const {
   tailBudget,
   summaryBudget,
   selectVerbatimTail,
+  selectTurnTail,
   minimumSummaryTokens,
   validateSummary,
   retryInstruction,
@@ -26,6 +33,8 @@ const {
   describeCompaction,
 } = require('../lib/compaction');
 const { estimateTokens, fitToWindow, modelReadyMessages } = require('./context-hygiene');
+
+const SUMMARIZER_RESULT_CHARS = 3000;
 
 function createCompactionRunner(rt) {
   const sink = () => rt.sink;
@@ -51,23 +60,33 @@ function createCompactionRunner(rt) {
       // Keep the most recent complete turns verbatim. They are the most
       // relevant part of the conversation and the cheapest fidelity
       // available, and the summarizer is then only responsible for what came
-      // before them.
-      const { tail, head, turns: tailTurns, tokens: tailTokens } =
-        selectVerbatimTail(unpinnedConversation, tailBudget(contextLength), sendableTokens);
+      // before them. When not even the current turn fits, keep its request
+      // and newest steps instead.
+      const chooseTail = (budget) => {
+        const turns = selectVerbatimTail(unpinnedConversation, budget, sendableTokens);
+        if (turns.tail.length) return { ...turns, summarize: turns.head, steps: 0, inTurn: false };
+        const inTurn = selectTurnTail(unpinnedConversation, budget, sendableTokens);
+        return inTurn.tail.length ? inTurn : { ...turns, summarize: turns.head, steps: 0, inTurn: false };
+      };
+      const chosen = chooseTail(tailBudget(contextLength));
+      const { tail, head, turns: tailTurns, tokens: tailTokens } = chosen;
 
       // Facts established by an earlier compaction of this same session.
       // Carrying them forward explicitly is what stops the record thinning a
       // little on every pass.
-      const priorRecord = [...head].reverse().find((message) => message?.compactionRecord)?.content || '';
-      const transcript = head.filter((message) => !message?.compactionRecord);
+      const priorRecord = [...chosen.summarize].reverse().find((message) => message?.compactionRecord)?.content || '';
+      const transcript = chosen.summarize.filter((message) => !message?.compactionRecord);
 
       // drop bulky tool outputs from what the summarizer sees — the summarizer
-      // must not context-shift itself
+      // must not context-shift itself. Deviation: 3,000 characters per result
+      // rather than the source's 1,500; at 1,500 a file's findings were mostly
+      // cut before the summarizer saw them, and chunking already keeps the
+      // input inside the window.
       const windowBudget = Math.floor(contextLength * 0.8);
       const summarizerInput = modelReadyMessages(transcript)
         .map((m) =>
-          m.role === 'tool' && String(m.content).length > 1500
-            ? { ...m, content: String(m.content).slice(0, 1500) + '…[truncated]' }
+          m.role === 'tool' && String(m.content).length > SUMMARIZER_RESULT_CHARS
+            ? { ...m, content: String(m.content).slice(0, SUMMARIZER_RESULT_CHARS) + '…[truncated]' }
             : m
         );
       const sourceTokens = estimateTokens(summarizerInput);
@@ -80,7 +99,12 @@ function createCompactionRunner(rt) {
       const ledger = buildLedger(head);
       const ledgerText = renderLedger(ledger);
 
-      const minimumTokens = minimumSummaryTokens(sourceTokens);
+      // A record that has to carry one line per file needs room for them: a
+      // summary of fifteen files once came back at 286 tokens and the model
+      // re-read what it had already read.
+      const filesTouched = ledger.read.length + ledger.changed.length;
+      const findingsFloor = chosen.inTurn && filesTouched ? 150 + 60 * filesTouched : 0;
+      const minimumTokens = Math.max(minimumSummaryTokens(sourceTokens), Math.min(1200, findingsFloor));
       const priorReady = priorRecord ? [{ role: 'user', content: priorRecordPreamble(priorRecord) }] : [];
 
       // Summarizing is extraction, not deliberation, and the trace competes
@@ -132,6 +156,7 @@ function createCompactionRunner(rt) {
             content: summaryInstruction({
               tailTurns: tail.length ? tailTurns : 0,
               minimumTokens,
+              ...(chosen.inTurn ? { inTurnSteps: chosen.steps } : {}),
             }),
           },
         ];
@@ -153,7 +178,7 @@ function createCompactionRunner(rt) {
           maxTokens: Math.max(512, summaryRoom),
           usageBucket: 'main',
         });
-        check = validateSummary(summary, { sourceTokens, estimateTokens });
+        check = validateSummary(summary, { sourceTokens, estimateTokens, minimumTokens: findingsFloor });
         // Retry for missing headings too, but only once — a long summary
         // without them is still worth keeping.
         if (check.ok && check.structured) break;
@@ -164,12 +189,20 @@ function createCompactionRunner(rt) {
         }
       }
 
+      // The findings floor is what the retry asks for, not a reason to throw a
+      // record away: a short summary that clears the ordinary floor is still
+      // far better than none.
+      if (!check.ok && findingsFloor) {
+        const ordinary = validateSummary(summary, { sourceTokens, estimateTokens });
+        if (ordinary.ok) check = ordinary;
+      }
+
       // Degrade toward raw text, never toward nothing. If the model will not
       // produce a usable summary, keep a larger verbatim tail rather than
       // compacting into a record that has lost the session.
       const degraded = !check.ok;
       const fallback = degraded
-        ? selectVerbatimTail(unpinnedConversation, Math.max(1200, retainedBudget(contextLength) - pinnedCost), sendableTokens)
+        ? chooseTail(Math.max(1200, retainedBudget(contextLength) - pinnedCost))
         : null;
       if (degraded && !fallback.tail.length) {
         return {
@@ -182,13 +215,9 @@ function createCompactionRunner(rt) {
       // covers what came BEFORE the recent turns, so a tail of zero discards
       // the request currently being worked on. Widen once, then decline
       // rather than destroy the conversation.
-      let intact = degraded ? fallback.tail : tail;
-      if (!degraded && !intact.length) {
-        const wider = selectVerbatimTail(
-          unpinnedConversation,
-          Math.max(1200, retainedBudget(contextLength) - pinnedCost),
-          sendableTokens,
-        );
+      let kept = degraded ? fallback : chosen;
+      if (!degraded && !kept.tail.length) {
+        const wider = chooseTail(Math.max(1200, retainedBudget(contextLength) - pinnedCost));
         if (!wider.tail.length) {
           return {
             ok: false,
@@ -196,15 +225,17 @@ function createCompactionRunner(rt) {
               + 'The conversation was left unchanged — start a new chat with /clear.',
           };
         }
-        intact = wider.tail;
+        kept = wider;
       }
 
-      const keptTail = intact;
+      const keptTail = kept.tail;
       rt.session.usage.metrics.compactions += 1;
 
       const notice = degraded
         ? 'Compaction could not produce a usable summary, so the earlier conversation was dropped and only the most recent turns below were kept. Re-read anything you need from earlier work rather than assuming it.'
-        : 'This conversation was compacted to save context. Continue from the summary below; the most recent turns that follow it are intact.';
+        : kept.inTurn
+          ? 'This conversation was compacted to save context, partway through the current request. Continue from the summary below: the request itself and its most recent steps follow it intact, and the summary records what the earlier steps found. Do not redo work the summary says is done — re-read a file only when you need its exact text.'
+          : 'This conversation was compacted to save context. Continue from the summary below; the most recent turns that follow it are intact.';
 
       rt.session.conversation = [
         ...pinnedConversation,
@@ -245,8 +276,10 @@ function createCompactionRunner(rt) {
         before,
         after: approxTokens,
         summaryTokens: degraded ? 0 : check.tokens,
-        tailTurns: degraded ? fallback.turns : tailTurns,
-        tailTokens: degraded ? fallback.tokens : tailTokens,
+        tailTurns: kept.turns,
+        tailTokens: kept.tokens,
+        tailSteps: kept.steps,
+        inTurn: !!kept.inTurn,
         retries,
         degraded,
         unstructured: !degraded && !check.structured,

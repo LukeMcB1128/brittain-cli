@@ -14,7 +14,7 @@ const { modelReadyMessages, estimateTokens } = require('./context-hygiene');
 const { unapprovedResult, isSensitiveToolCall } = require('./approvals');
 const { estimateContextTokens } = require('../lib/context-estimator');
 const { createToolFailureTracker } = require('../lib/tool-failure');
-const { boundToolResult } = require('../lib/tool-result');
+const { boundToolResult, toolResultLimit } = require('../lib/tool-result');
 const { outcomeOf } = require('../lib/ledger');
 const { costOf, addTurn: addCostTurn, describeTurn: describeTurnCost, describeTotals: describeCostTotals } = require('../lib/cost');
 const { RISKY_TOOLS, DESTRUCTIVE_TOOLS, isDestructiveCommand } = require('../lib/tools');
@@ -25,6 +25,11 @@ const MAX_AGENT_STEPS = 50; // safety cap on tool-call loops per user message
 function preview(s) {
   s = String(s);
   return s.length > 400 ? s.slice(0, 400) + '…' : s;
+}
+
+// How many steps before the cap the model is told to start wrapping up.
+function wrapUpWarningSteps(maxAgentSteps) {
+  return Math.min(5, Math.max(1, Math.floor(maxAgentSteps / 5)));
 }
 
 function responseReserve(contextLength) {
@@ -66,6 +71,28 @@ function createAgentLoop(rt) {
       estimatedTokens: estimateContextTokens(messages) + estimateTokens(agentTools || []),
       hardInput,
     };
+  }
+
+  // CLI addition: never send a request the model cannot take. The source
+  // computed hardInput and left it to Jev; without Jev an oversized request
+  // went out and came back as a provider 400 mid-turn. Compact once, then
+  // refuse with a message that says what to do.
+  async function fitRequest({ model, prompt, agentTools, contextLength }) {
+    let prepared = prepareAgentMessages({ prompt, agentTools, contextLength });
+    if (prepared.estimatedTokens <= prepared.hardInput) return prepared;
+    const n = (value) => Number(value || 0).toLocaleString();
+    sink().info(`The next request is about ${n(prepared.estimatedTokens)} tokens, more than the ${n(prepared.hardInput)} this model can take — compacting first…`);
+    sink().state('compacting');
+    const c = await rt.compaction.compactConversation(model);
+    if (c.ok) {
+      sink().emit('stream:stats', { contextTokens: c.approxTokens, contextLength: c.contextLength, tokPerSec: 0, scope: 'conversation' });
+      sink().info(`Compacted: ${c.description}`);
+    }
+    prepared = prepareAgentMessages({ prompt, agentTools, contextLength });
+    if (prepared.estimatedTokens <= prepared.hardInput) return prepared;
+    throw new Error(`This request is about ${n(prepared.estimatedTokens)} tokens and the model's ${n(contextLength)}-token window leaves room for ${n(prepared.hardInput)}. `
+      + (c.ok ? 'Compacting did not free enough room. ' : `Compaction failed: ${c.error} `)
+      + 'Start a new chat with /clear, or switch to a model with a larger window.');
   }
 
   // Resolves one tool call and returns its result text. Every branch emits
@@ -158,11 +185,13 @@ function createAgentLoop(rt) {
     const temperature = chatMode ? settings.chatTemperature : settings.codeTemperature;
     rt.approvalFlow.beginTurn();
 
+    const resultLimit = toolResultLimit(contextLength);
+
     let psychosisRetried = false;
     for (let step = 0; step < maxAgentSteps; step++) {
       let content, thinking, toolCalls, stats;
       try {
-        const prepared = prepareAgentMessages({ prompt, agentTools, contextLength });
+        const prepared = await fitRequest({ model, prompt, agentTools, contextLength });
         ({ content, thinking, toolCalls, stats } = await rt.stream.streamChat(model, prepared.messages, signal, useThink, false, contextLength, agentTools, { toolCallRetries: 0 }, temperature, prepared.maxTokens));
       } catch (err) {
         if (err.name !== 'PsychosisDetectedError') throw err;
@@ -276,7 +305,7 @@ function createAgentLoop(rt) {
           const failure = toolFailures.record(name, args, result);
           if (failure.reachedLimit) failureDirectives.add(name || 'tool');
         }
-        const bounded = boundToolResult(result, { toolName: name || 'tool' });
+        const bounded = boundToolResult(result, { toolName: name || 'tool', maxChars: resultLimit });
         if (bounded.truncated) {
           sink().info(`Tool result from "${name}" was ${bounded.originalChars.toLocaleString()} characters. Kept a ${bounded.content.length.toLocaleString()}-character excerpt in model context.`);
         }
@@ -288,6 +317,16 @@ function createAgentLoop(rt) {
           role: 'user',
           meta: 'nudge',
           content: `These tool calls have failed twice or were blocked after repeated failure: ${[...failureDirectives].join(', ')}. Do not repeat the same call. Use a different approach, or explain the blocker and ask one focused question.`,
+        });
+      }
+      // CLI addition: a model that keeps exploring used to run into the cap
+      // with nothing written. Say how much room is left before it runs out.
+      const remaining = maxAgentSteps - (step + 1);
+      if (remaining === wrapUpWarningSteps(maxAgentSteps)) {
+        conversation().push({
+          role: 'user',
+          meta: 'nudge',
+          content: `You have ${remaining} model ${remaining === 1 ? 'call' : 'calls'} left for this request. Stop exploring: use them only for what is essential, then write your answer.`,
         });
       }
       rt.state.emitPersistedConversationContext(model, contextLength);
@@ -317,7 +356,37 @@ function createAgentLoop(rt) {
       }
     }
     if (exhaustedWithToolCalls && !rt.run.stopRequested) {
-      sink().info(`Agent stopped after reaching the ${maxAgentSteps}-step safety cap.`);
+      // CLI addition: the source stopped here, which left a long exploration
+      // with no answer at all. Ask once more with tools switched off, so the
+      // model has to answer from what it found.
+      sink().info(`Agent reached the ${maxAgentSteps}-step safety cap — asking for a final answer without tools.`);
+      conversation().push({
+        role: 'user',
+        meta: 'nudge',
+        content: `You have used all ${maxAgentSteps} steps for this request and cannot call any more tools. Answer the user's request now from what you have found. Say plainly what you did not get to check.`,
+      });
+      try {
+        const prepared = await fitRequest({ model, prompt, agentTools: [], contextLength });
+        const final = await rt.stream.streamChat(model, prepared.messages, signal, useThink, false, contextLength, null, { toolCallRetries: 0 }, temperature, prepared.maxTokens);
+        if (final.stats) {
+          rt.state.recordUsage('main', final.stats);
+          rt.state.publishContextStats(final.stats, contextLength);
+          turnTokens.promptTokens += final.stats.promptTokens || 0;
+          turnTokens.evalTokens += final.stats.evalTokens || 0;
+          lastStats = final.stats;
+        }
+        const finalMsg = { role: 'assistant', content: final.content };
+        if (final.thinking) finalMsg.thinking = final.thinking;
+        conversation().push(finalMsg);
+        await rt.chatJobs.persistActive();
+        if (final.content && final.content.trim()) {
+          sink().emit('stream:message', final.content.trim());
+          lastContent = final.content;
+        }
+      } catch (err) {
+        if (err.name === 'AbortError') throw err;
+        sink().info(`The final answer failed (${rt.providers.redact(err.message || String(err))}). Ask "what did you find?" to get a summary.`);
+      }
     }
     // What that message cost, reported once at the end of the turn. Only when
     // the provider is not local: a local model has no bill, and inventing a

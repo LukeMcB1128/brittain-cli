@@ -32,7 +32,11 @@ const DEFAULT_SETTINGS = Object.freeze({
   providers: DEFAULT_PROVIDERS,
   mainContextCap: 0,
   autoCompact: true,
-  compactThreshold: 0.7,
+  // Deviation: 0.8 rather than the source's 0.7. The agent loop now refuses
+  // to send a request over the model's input budget (compacting first), so
+  // auto-compaction no longer has to fire early for safety; on a 32k model
+  // 70% was compacting at ~23k tokens.
+  compactThreshold: 0.8,
   keepAlive: '5m',
   codeTemperature: 0.3,
   chatTemperature: 0.6,
