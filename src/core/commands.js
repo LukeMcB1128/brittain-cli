@@ -10,7 +10,7 @@ const { describeTotals: describeCostTotals } = require('../lib/cost');
 const { estimateContextTokens } = require('../lib/context-estimator');
 const { getSetting, setSetting } = require('../lib/settings');
 const { MODES, isMode } = require('../lib/providers');
-const { CODE_TOOLS, CHAT_TOOLS, RISKY_TOOLS, SENSITIVE_TOOLS, DESTRUCTIVE_TOOLS, gitRun } = require('../lib/tools');
+const { CODE_TOOLS, RISKY_TOOLS, SENSITIVE_TOOLS, DESTRUCTIVE_TOOLS, gitRun } = require('../lib/tools');
 const { modelReadyMessages } = require('./context-hygiene');
 const { pinFile, unpinFile, setMessagePinned } = require('../lib/context-controls');
 
@@ -80,8 +80,7 @@ function createCommands(rt) {
       return { ok: true, empty: isEmptyLedger(built), rendered: renderLedger(built) };
     },
 
-    // Chat mode's memory is user-wide; code mode's belongs to the project.
-    'memory.get': ({ cwd, mode } = {}) => rt.memory.get(cwd !== undefined ? cwd : (mode || rt.session.view.mode) === 'chat' ? null : rt.config.cwd),
+    'memory.get': ({ cwd } = {}) => rt.memory.get(cwd),
 
     compact: async ({ model } = {}) => {
       if (rt.run.abort) return { ok: false, error: 'A run is in progress. Stop it first.' };
@@ -169,9 +168,9 @@ function createCommands(rt) {
       }
     },
 
-    'tools.list': ({ mode } = {}) => ({
+    'tools.list': () => ({
       ok: true,
-      tools: (mode === 'chat' ? CHAT_TOOLS : CODE_TOOLS).map((t) => ({
+      tools: CODE_TOOLS.map((t) => ({
         name: t.function.name,
         isRisky: RISKY_TOOLS.has(t.function.name),
         isSensitive: SENSITIVE_TOOLS.has(t.function.name),

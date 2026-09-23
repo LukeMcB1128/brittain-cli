@@ -97,7 +97,7 @@ function createAgentLoop(rt) {
 
   // Resolves one tool call and returns its result text. Every branch emits
   // exactly one stream:toolresult.
-  async function resolveCall({ name, args, chatMode, cwd, autoApprove, activeToolNames, toolFailures, failureDirectives }) {
+  async function resolveCall({ name, args, cwd, autoApprove, activeToolNames, toolFailures, failureDirectives }) {
     const emit = (result, denied) => sink().emit('stream:toolresult', { name, result: preview(result), ...(denied ? { denied: true } : {}) });
     const approveThenRun = async (promptKind, deniedText, label) => {
       const decision = await rt.approvalFlow.resolveToolCall(name, args, { autoApprove, promptKind });
@@ -120,9 +120,7 @@ function createAgentLoop(rt) {
       return { result, repeatedCallBlocked: true };
     }
     if (!activeToolNames.has(name)) {
-      const result = chatMode
-        ? `Error: Tool unavailable in Chat mode: ${name}. Continue without local file, shell, Git, or project access.`
-        : `Error: Tool unavailable for this turn: ${name}. Continue without it.`;
+      const result = `Error: Tool unavailable for this turn: ${name}. Continue without it.`;
       emit(result, true);
       return { result };
     }
@@ -158,14 +156,13 @@ function createAgentLoop(rt) {
     return { result };
   }
 
-  async function runAgentTurn({ model, cwd, autoApprove, think, mode = 'code' }) {
-    const chatMode = mode === 'chat';
+  async function runAgentTurn({ model, cwd, autoApprove, think }) {
     const signal = rt.run.abort.signal;
-    const prompt = rt.prompts.promptFor(mode, cwd, model);
+    const prompt = rt.prompts.systemPrompt(cwd, model);
     const messages = () => [{ role: 'system', content: prompt }, ...modelReadyMessages(conversation())];
     // report the window we actually run with, not the model's theoretical max
     const contextLength = await rt.models.effectiveContext(model);
-    const agentTools = rt.prompts.activeToolDefs(chatMode);
+    const agentTools = rt.prompts.activeToolDefs();
     const activeToolNames = new Set(agentTools.map((definition) => definition.function.name));
     // For models that support thinking, always send an explicit true/false —
     // omitting the param makes Ollama think by default, ignoring the toggle.
@@ -182,7 +179,7 @@ function createAgentLoop(rt) {
     let deniedCalls = 0;
     const settings = rt.config.settings();
     const maxAgentSteps = settings.maxAgentSteps || MAX_AGENT_STEPS;
-    const temperature = chatMode ? settings.chatTemperature : settings.codeTemperature;
+    const temperature = settings.codeTemperature;
     rt.approvalFlow.beginTurn();
 
     const resultLimit = toolResultLimit(contextLength);
@@ -293,7 +290,7 @@ function createAgentLoop(rt) {
 
         sink().toolCall({ name, args });
         const { result, repeatedCallBlocked } = await resolveCall({
-          name, args, chatMode, cwd, autoApprove, activeToolNames, toolFailures, failureDirectives,
+          name, args, cwd, autoApprove, activeToolNames, toolFailures, failureDirectives,
         });
 
         // Match the denial sentences rather than a UI label, or every denial

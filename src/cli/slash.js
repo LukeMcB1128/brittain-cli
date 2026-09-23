@@ -70,18 +70,6 @@ function createSlash({ runtime, ui, setupProvider }) {
       },
     },
     {
-      name: 'mode',
-      usage: '/mode code|chat',
-      summary: 'Switch mode',
-      run: ({ args }) => {
-        const wanted = args[0];
-        if (!wanted) return ui.line(`Mode: ${ui.state.mode}`);
-        if (!['code', 'chat'].includes(wanted)) return ui.line('Usage: /mode code|chat');
-        ui.state.mode = wanted;
-        ui.line(`Mode: ${wanted}`);
-      },
-    },
-    {
       name: 'provider',
       usage: '/provider [brittain|openai|ollama]',
       summary: 'Show or switch the provider',
@@ -106,7 +94,7 @@ function createSlash({ runtime, ui, setupProvider }) {
     {
       name: 'model',
       usage: '/model [name]',
-      summary: 'Fuzzy match / picker for the active mode',
+      summary: 'Fuzzy match / picker for the active provider',
       run: async ({ rest }) => {
         const listed = await commands['models.list']();
         if (!listed.ok) return ui.line(listed.error);
@@ -138,14 +126,12 @@ function createSlash({ runtime, ui, setupProvider }) {
     {
       name: 'think',
       usage: '/think on|off',
-      summary: 'Thinking for the active mode',
+      summary: 'Model reasoning on or off',
       run: ({ args }) => {
-        const key = ui.state.mode === 'chat' ? 'chatThink' : 'codeThink';
-        const current = rt.config.stored()[key];
-        const value = onOff(args[0], current);
+        const value = onOff(args[0], rt.config.stored().codeThink);
         if (value === null) return ui.line('Usage: /think on|off');
-        commands['settings.set']({ key, value: String(value) });
-        ui.line(`Thinking ${value ? 'on' : 'off'} for ${ui.state.mode} mode.`);
+        commands['settings.set']({ key: 'codeThink', value: String(value) });
+        ui.line(`Thinking ${value ? 'on' : 'off'}.`);
       },
     },
     {
@@ -163,7 +149,7 @@ function createSlash({ runtime, ui, setupProvider }) {
       usage: '/context',
       summary: 'What the next request will send, with token counts',
       run: async () => {
-        const result = await commands['context.inspect']({ mode: ui.state.mode });
+        const result = await commands['context.inspect']();
         ui.page(formatContext(result, { style: ui.style }));
       },
     },
@@ -203,8 +189,8 @@ function createSlash({ runtime, ui, setupProvider }) {
       usage: '/memory',
       summary: 'Show memory and its path',
       run: () => {
-        const memory = commands['memory.get']({ mode: ui.state.mode });
-        const where = memory.globalChat ? 'Chat mode (user-wide)' : memory.inRepo ? 'this project (in the repository)' : 'this project';
+        const memory = commands['memory.get']();
+        const where = memory.inRepo ? 'this project (in the repository)' : 'this project';
         ui.line(ui.style.dim(`Memory for ${where}: ${memory.path}`));
         ui.page(memory.content.trim() || '(nothing remembered yet)');
       },
@@ -257,11 +243,10 @@ function createSlash({ runtime, ui, setupProvider }) {
           return ui.line(result.ok ? 'Deleted.' : result.error);
         }
         const id = args[0] === 'load' ? args[1] : await ui.pick('Load which chat (number, Enter to cancel):',
-          chats.slice(0, 20).map((chat) => ({ label: `${chat.title} ${ui.style.dim(`· ${chat.mode} · ${chat.id}`)}`, value: chat.id })));
+          chats.slice(0, 20).map((chat) => ({ label: `${chat.title} ${ui.style.dim(`· ${chat.id}`)}`, value: chat.id })));
         if (!id) return;
         const result = commands['history.load']({ id });
         if (!result.ok) return ui.line(result.error);
-        ui.state.mode = result.chat.mode === 'chat' ? 'chat' : 'code';
         ui.line(`Loaded "${result.chat.title}" (${result.chat.conversation.length} messages).`);
       },
     },
@@ -279,7 +264,7 @@ function createSlash({ runtime, ui, setupProvider }) {
       usage: '/tools',
       summary: 'Tools with risky/sensitive/destructive flags',
       run: () => {
-        const { tools } = commands['tools.list']({ mode: ui.state.mode });
+        const { tools } = commands['tools.list']();
         for (const tool of tools) {
           const flags = [tool.isRisky && 'risky', tool.isSensitive && 'sensitive', tool.isDestructive && 'destructive'].filter(Boolean);
           ui.line(`${tool.name.padEnd(16)} ${ui.style.dim(flags.join(', '))}`.trimEnd());

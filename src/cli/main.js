@@ -32,7 +32,6 @@ Commands:
 Options:
   --provider <mode>               Use this provider for one invocation (not saved)
   --model <name>                  Use this model for one invocation (not saved)
-  --mode code|chat                Code mode (tools, working directory) or chat mode
   --cwd <dir>                     Working directory (default: current directory)
   --yes                           Allow edits and commands without asking
                                   (destructive, sensitive, and payment actions
@@ -230,7 +229,6 @@ async function main(argv, {
           print: { type: 'string', short: 'p' },
           provider: { type: 'string' },
           model: { type: 'string' },
-          mode: { type: 'string' },
           cwd: { type: 'string' },
           yes: { type: 'boolean' },
           'output-format': { type: 'string' },

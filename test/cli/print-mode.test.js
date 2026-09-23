@@ -96,12 +96,11 @@ test('json output is one object with the result and the denial count', async (t)
   assert.match(parsed.result, /hello, world/);
 });
 
-test('chat mode runs without a working directory or tools', async (t) => {
-  const { home, fake } = await setup(t, [{ text: 'Paris.' }]);
-  const result = await runCli(['-p', 'capital of France?', '--mode', 'chat'], { home });
-  assert.equal(result.status, 0, result.stderr);
-  assert.equal(result.stdout.trim(), 'Paris.');
-  assert.deepEqual(fake.chats[0].tools.map((tool) => tool.function.name).sort(), ['ask_user', 'remember']);
+test('there is no chat mode: --mode is not an option', async (t) => {
+  const { home } = await setup(t, [{ text: 'never' }]);
+  const result = await runCli(['-p', 'hi', '--mode', 'chat'], { home });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /Unknown option '--mode'/);
 });
 
 test('a provider error exits 1', async (t) => {

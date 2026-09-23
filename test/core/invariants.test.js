@@ -18,13 +18,13 @@ function project() {
   return dir;
 }
 
-async function run(t, { turns, approvals = [], interactive = true, autoApprove = false, cwd = project(), mode = 'code', answers = [] }) {
+async function run(t, { turns, approvals = [], interactive = true, autoApprove = false, cwd = project(), answers = [] }) {
   const fake = await createFakeProvider({ turns }).start();
   t.after(() => fake.stop());
   const host = createTestHost({ settings: settingsFor('ollama', fake), approvals, interactive, answers });
   const runtime = createRuntime({ host, overrides: { cwd } });
   const seen = collect(runtime.events);
-  const result = await runtime.commands.chat({ text: 'go', mode, cwd, autoApprove });
+  const result = await runtime.commands.chat({ text: 'go', cwd, autoApprove });
   return { result, host, runtime, seen, fake, cwd };
 }
 
@@ -141,12 +141,6 @@ test('writes stay inside the working directory', async (t) => {
   assert.equal(fs.existsSync(outside), false);
   assert.ok(fs.existsSync(path.join(cwd, 'README.md')));
   for (const message of toolMessages(runtime)) assert.match(message.content, /^Error: Path escapes the working directory/);
-});
-
-test('chat mode offers no filesystem tools and refuses them if called', async (t) => {
-  const { runtime, fake } = await run(t, { mode: 'chat', turns: [call('read_file', { path: 'README.md' }), done] });
-  assert.deepEqual(fake.chats[0].tools.map((tool) => tool.function.name).sort(), ['ask_user', 'remember']);
-  assert.match(toolMessages(runtime)[0].content, /Tool unavailable in Chat mode/);
 });
 
 test('ask_user is answered by the host, and unattended it is told nobody answered', async (t) => {

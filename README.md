@@ -7,7 +7,7 @@ loop, tools, safety rules, memory and compaction, without the desktop app.
 - Runs under the `node` you already have. Nothing to sign, nothing to
   notarize, no runtime dependencies.
 - Small. The system prompt and tool schemas come to about 2,000 tokens in
-  code mode (the desktop app sends about 8,700), which matters on a model
+  total (the desktop app sends about 8,700), which matters on a model
   with a 32k or 56k window.
 - Works with Brittain 4 out of the box, and with any OpenAI-compatible
   provider or a local Ollama.
@@ -81,7 +81,7 @@ brittain provider ollama   # lists your installed models; pick one
 If Ollama runs somewhere else:
 `brittain config set providers.ollama.endpoint http://gpu-box:11434`.
 
-`brittain models` lists the models for the active mode, and `/model <part of
+`brittain models` lists the models for the active provider, and `/model <part of
 a name>` switches between them.
 
 ## In a session
@@ -108,11 +108,10 @@ title.
 |---|---|
 | `/help` | List these commands |
 | `/clear` | New chat |
-| `/mode code\|chat` | Code mode has tools and the working directory; chat mode has neither |
 | `/provider [brittain\|openai\|ollama]` | Show or switch the provider |
 | `/model [name]` | Fuzzy-match or pick a model for the active provider |
 | `/auto on\|off` | Trusted (edits and commands run without asking) or supervised |
-| `/think on\|off` | Model reasoning for the active mode |
+| `/think on\|off` | Model reasoning on or off |
 | `/compact` | Summarize older turns to free context |
 | `/context` | Exactly what the next request will send, with token counts |
 | `/usage`, `/cost`, `/ledger` | Tokens, spend, and what the session changed |
@@ -124,7 +123,7 @@ title.
 | `/export [path]` | Save the chat as Markdown |
 | `/tools` | The tools and their risk flags |
 
-A `BRITTAIN.md` in the project root is read into every code-mode session as
+A `BRITTAIN.md` in the project root is read into every session as
 project instructions.
 
 ## Data
@@ -136,7 +135,7 @@ Everything lives in `~/.brittain/` (or `$BRITTAIN_HOME`), created with mode
 |---|---|
 | `settings.json` | Provider modes, models, and preferences. `brittain config get` shows it; `brittain config set <key> <value>` changes it. |
 | `history/` | Saved chats |
-| `memory/` | Lessons saved with the `remember` tool, per project, plus one file for chat mode |
+| `memory/` | Lessons saved with the `remember` tool, one file per project |
 | `runs/` | Session ledgers written at compaction |
 | `repl_history` | Your input history |
 | `credentials.json` | Only when no keychain is available (see below) |
@@ -159,9 +158,9 @@ written into it.
   Trusted (`/auto on`, `--yes`) runs those without asking.
 - Destructive commands (`rm -rf`, `git push`, `sudo`, `git reset --hard`, a
   download piped into a shell, and so on), reads of secrets (`.env`, keys,
-  `.npmrc`), and anything that looks like it moves money always ask, in
-  every mode. With nobody there to ask, they are denied.
-- Every code-mode run first snapshots the working tree to a hidden Git ref, so
+  `.npmrc`), and anything that looks like it moves money always ask, even
+  in trusted mode. With nobody there to ask, they are denied.
+- Every run first snapshots the working tree to a hidden Git ref, so
   `/undo` can put it back even if you never committed.
 - Memory and `BRITTAIN.md` are given to the model as data, not as
   instructions.

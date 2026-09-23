@@ -5,7 +5,10 @@
 // compactionEngine, toolIndex, sidebarOpen, and the settings that only served
 // deferred features — autonomyPolicy (custom policies), autoBranch, reviewMode,
 // mcpAutoApprove, onlineAutoApprove, defaultLoopIterations, and lastModel (the
-// daemon/bridge fallback).
+// daemon/bridge fallback). Chat mode was removed (brittain.app covers chat),
+// and its settings with it: defaultMode, chatTemperature, chatThink,
+// globalChatInstructions. The code-mode names are kept so existing
+// settings.json files keep working.
 //
 // Replaced: the single inferenceEndpoint/provider pair and per-mode model
 // fields with one record per provider mode (PLAN.md §5.1), so switching modes
@@ -39,13 +42,9 @@ const DEFAULT_SETTINGS = Object.freeze({
   compactThreshold: 0.8,
   keepAlive: '5m',
   codeTemperature: 0.3,
-  chatTemperature: 0.6,
-  defaultMode: 'code',
   codeThink: false,
-  chatThink: false,
   autoApprove: false,
   globalCodeInstructions: '',
-  globalChatInstructions: '',
   maxAgentSteps: 50,
 });
 
@@ -136,13 +135,9 @@ function normalizeSettings(input = {}) {
     compactThreshold: clampNumber(merged.compactThreshold, DEFAULT_SETTINGS.compactThreshold, 0.5, 0.9),
     keepAlive: ['0', '5m', '30m', '-1'].includes(String(merged.keepAlive)) ? String(merged.keepAlive) : DEFAULT_SETTINGS.keepAlive,
     codeTemperature: clampNumber(merged.codeTemperature, DEFAULT_SETTINGS.codeTemperature, 0, 1.5),
-    chatTemperature: clampNumber(merged.chatTemperature, DEFAULT_SETTINGS.chatTemperature, 0, 1.5),
-    defaultMode: ['code', 'chat'].includes(merged.defaultMode) ? merged.defaultMode : DEFAULT_SETTINGS.defaultMode,
     codeThink: !!merged.codeThink,
-    chatThink: !!merged.chatThink,
     autoApprove: !!merged.autoApprove,
     globalCodeInstructions: cleanText(merged.globalCodeInstructions, 12_000),
-    globalChatInstructions: cleanText(merged.globalChatInstructions, 12_000),
     maxAgentSteps: clampInteger(merged.maxAgentSteps, DEFAULT_SETTINGS.maxAgentSteps, 5, 100),
   };
 }
@@ -225,7 +220,6 @@ function setSetting(settings, key, raw) {
   if (key === 'provider' && !PROVIDER_MODES.includes(value)) {
     throw new Error(`provider must be one of: ${PROVIDER_MODES.join(', ')}.`);
   }
-  if (key === 'defaultMode' && !['code', 'chat'].includes(value)) throw new Error('defaultMode must be code or chat.');
   if (key === 'keepAlive' && !['0', '5m', '30m', '-1'].includes(value)) throw new Error('keepAlive must be one of: 0, 5m, 30m, -1.');
 
   const next = JSON.parse(JSON.stringify(settings));

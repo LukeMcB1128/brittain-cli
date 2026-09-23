@@ -41,7 +41,6 @@ test('normalizes settings into safe runtime bounds', () => {
     mainContextCap: 9_999_999,
     compactThreshold: 0.2,
     codeTemperature: 9,
-    chatTemperature: -2,
     maxAgentSteps: 999,
     keepAlive: 'forever',
   });
@@ -49,11 +48,12 @@ test('normalizes settings into safe runtime bounds', () => {
   assert.equal(normalizeSettings({ mainContextCap: 999_999 }).mainContextCap, 999_999);
   assert.equal(settings.compactThreshold, 0.5);
   assert.equal(settings.codeTemperature, 1.5);
-  assert.equal(settings.chatTemperature, 0);
   assert.equal(settings.maxAgentSteps, 100);
   assert.equal(settings.keepAlive, DEFAULT_SETTINGS.keepAlive);
   // Pruned settings for deferred features do not survive normalization.
-  for (const key of ['compactionEngine', 'jevEndpoint', 'coderModel', 'scoutModel', 'toolIndex', 'sidebarOpen']) {
+  for (const key of ['compactionEngine', 'jevEndpoint', 'coderModel', 'scoutModel', 'toolIndex', 'sidebarOpen',
+    // chat mode's settings, removed with it
+    'defaultMode', 'chatTemperature', 'chatThink', 'globalChatInstructions']) {
     assert.equal(key in normalizeSettings({ [key]: 'x' }), false, key);
   }
 });
@@ -66,7 +66,7 @@ test('saves and reloads the complete settings document', () => {
       provider: 'ollama',
       providers: { ollama: { endpoint: 'http://127.0.0.1:9001', model: 'small-chat:latest' } },
       mainContextCap: 65_536,
-      globalChatInstructions: 'Prefer short answers.',
+      globalCodeInstructions: 'Prefer short answers.',
     });
     assert.equal(fs.existsSync(settingsPath(dir) + '.tmp'), false);
     assert.deepEqual(loadSettings(dir), saved);

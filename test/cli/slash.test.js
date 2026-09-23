@@ -18,7 +18,7 @@ const { createTestHost, settingsFor } = require('../helpers/test-host');
 
 // PLAN.md M7, in order.
 const PLAN_TABLE = [
-  '/help', '/clear', '/mode code|chat', '/provider [brittain|openai|ollama]', '/model [name]',
+  '/help', '/clear', '/provider [brittain|openai|ollama]', '/model [name]',
   '/auto on|off', '/think on|off', '/compact', '/context', '/usage', '/cost', '/ledger',
   '/memory', '/diff', '/commit <msg>', '/undo', '/history', '/export [path]', '/tools',
 ];
@@ -46,7 +46,7 @@ async function setup(t, { turns = [{ text: 'ok' }], picks = [] } = {}) {
   const ui = {
     style: createStyles(false),
     color: false,
-    state: { mode: 'code', autoApprove: false },
+    state: { autoApprove: false },
     line: (text) => lines.push(String(text)),
     page: (text) => lines.push(String(text)),
     pick: async (question, items) => {
@@ -91,12 +91,9 @@ test('/clear starts a new chat', async (t) => {
   assert.equal(s.runtime.rt.session.conversation.length, 0);
 });
 
-test('/mode switches between code and chat', async (t) => {
+test('there is no /mode: chat mode was removed', async (t) => {
   const s = await setup(t);
-  assert.match(await s.run('/mode chat'), /Mode: chat/);
-  assert.equal(s.ui.state.mode, 'chat');
-  assert.match(await s.run('/mode sideways'), /Usage/);
-  assert.match(await s.run('/mode'), /Mode: chat/);
+  assert.match(await s.run('/mode chat'), /Unknown command \/mode/);
 });
 
 test('/provider shows a picker and switches directly', async (t) => {
@@ -109,7 +106,7 @@ test('/provider shows a picker and switches directly', async (t) => {
   assert.match(await s.run('/provider nope'), /Unknown provider/);
 });
 
-test('/model fuzzy-matches for the active mode', async (t) => {
+test('/model fuzzy-matches for the active provider', async (t) => {
   const s = await setup(t, { picks: ['llama3.2:3b'] });
   assert.match(await s.run('/model coder'), /Model: qwen3-coder:30b/);
   assert.equal(s.runtime.rt.providers.resolve().model, 'qwen3-coder:30b');
@@ -127,13 +124,13 @@ test('/auto toggles trusted and supervised', async (t) => {
   assert.match(await s.run('/auto sometimes'), /Usage/);
 });
 
-test('/think toggles thinking for the active mode', async (t) => {
+test('/think toggles model reasoning', async (t) => {
   const s = await setup(t);
-  assert.match(await s.run('/think on'), /Thinking on for code mode/);
+  assert.match(await s.run('/think on'), /Thinking on\./);
   assert.equal(s.runtime.rt.config.stored().codeThink, true);
-  s.ui.state.mode = 'chat';
-  await s.run('/think on');
-  assert.equal(s.runtime.rt.config.stored().chatThink, true);
+  assert.match(await s.run('/think off'), /Thinking off\./);
+  assert.equal(s.runtime.rt.config.stored().codeThink, false);
+  assert.match(await s.run('/think maybe'), /Usage/);
 });
 
 test('/compact, /context, /usage, /cost, /ledger report as the source does', async (t) => {
@@ -197,11 +194,9 @@ test('/history lists, loads, and deletes saved chats', async (t) => {
   const s = await setup(t, { turns: [{ text: 'hello back' }, { text: 'Greeting chat' }] });
   const { chatId } = await s.runtime.commands.chat({ text: 'hello', cwd: s.cwd });
   s.runtime.commands.reset();
-  s.ui.state.mode = 'chat';
   const listed = await s.run('/history');
   assert.match(listed, /Greeting chat/);
   assert.match(await s.run(`/history load ${chatId}`), /Loaded "Greeting chat" \(2 messages\)/);
-  assert.equal(s.ui.state.mode, 'code');
   s.runtime.commands.reset();
   assert.match(await s.run(`/history delete ${chatId}`), /Deleted/);
   assert.match(await s.run('/history'), /No saved chats yet/);
@@ -224,8 +219,6 @@ test('/tools lists the tools with their flags', async (t) => {
   assert.match(out, /^read_file\s*$/m);
   assert.match(out, /^run_command\s+risky$/m);
   assert.equal(out.split('\n').filter((line) => /^\w+/.test(line) && !/^Destructive/.test(line)).length, 17);
-  s.ui.state.mode = 'chat';
-  assert.match(await s.run('/tools'), /^ask_user\s*\nremember/m);
 });
 
 test('an unknown command says so', async (t) => {

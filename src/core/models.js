@@ -193,7 +193,6 @@ function createModels(rt) {
       settings: {
         requestedContextCap: settings.mainContextCap || NUM_CTX_CAP,
         codeTemperature: settings.codeTemperature,
-        chatTemperature: settings.chatTemperature,
         keepAlive: provider.mode === 'ollama' ? settings.keepAlive : null,
         provider: provider.mode,
       },

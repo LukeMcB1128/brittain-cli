@@ -58,15 +58,14 @@ test('semantic navigation outlines definitions and finds symbols', async (t) => 
 });
 
 
-test('folder-free Chat memory is user-wide and does not require a project', async (t) => {
+test('memory belongs to a project; there is no folder-free chat memory', async (t) => {
   const userData = tempProject();
+  const project = tempProject();
   t.after(() => fs.rmSync(userData, { recursive: true, force: true }));
   initTools(userData);
-
-  const result = await executeTool('remember', { fact: 'Prefer concise answers.' }, null);
-  assert.match(result, /folder-free Chat mode/);
-  assert.match(readMemory(null), /Prefer concise answers/);
-  assert.equal(memoryPath(null), path.join(userData, 'memory', 'chat.md'));
+  assert.match(await executeTool('remember', { fact: 'Prefer concise answers.' }, project), /^Remembered for this project/);
+  assert.match(readMemory(project), /Prefer concise answers/);
+  assert.throws(() => memoryPath(null), /working directory is required/);
 });
 
 

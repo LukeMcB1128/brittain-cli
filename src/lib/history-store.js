@@ -1,6 +1,9 @@
 // Ported from brittain-code@fa01d50fe707a9f72dfbad3550a56fe60effa14b:src/main/history-store.js
 'use strict';
 
+// Pruned: the code/chat mode field (chat mode was removed); older chats that
+// carry one still load.
+
 const fs = require('fs');
 const path = require('path');
 const { randomUUID } = require('node:crypto');
@@ -27,8 +30,8 @@ function writeJsonAtomic(file, value) {
 }
 
 function indexEntry(chat) {
-  const { id, title, model, provider, mode, cwd, think, autoApprove, timestamp } = chat;
-  return { id, title, model, provider, mode, cwd, think, autoApprove, timestamp };
+  const { id, title, model, provider, cwd, think, autoApprove, timestamp } = chat;
+  return { id, title, model, provider, cwd, think, autoApprove, timestamp };
 }
 
 function safeChatId(id) {
@@ -77,7 +80,6 @@ function createHistoryStore({ userDataDir, runtimeMetadata }) {
         title: meta.title || 'Chat',
         model: meta.model || '',
         provider: meta.provider || '',
-        mode: meta.mode === 'chat' ? 'chat' : 'code',
         cwd: meta.cwd || '',
         think: !!meta.think,
         autoApprove: !!meta.autoApprove,

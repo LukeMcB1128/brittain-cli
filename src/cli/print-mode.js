@@ -20,8 +20,6 @@ const OUTPUT_FORMATS = ['text', 'json', 'stream-json'];
 async function runPrintMode({ prompt, options, host, env, stdout, stderr, io }) {
   const format = options['output-format'] || 'text';
   if (!OUTPUT_FORMATS.includes(format)) throw new Error(`--output-format must be one of: ${OUTPUT_FORMATS.join(', ')}.`);
-  const mode = options.mode;
-  if (mode && !['code', 'chat'].includes(mode)) throw new Error('--mode must be code or chat.');
   let cwd = process.cwd();
   if (options.cwd) {
     cwd = path.resolve(options.cwd);
@@ -32,7 +30,7 @@ async function runPrintMode({ prompt, options, host, env, stdout, stderr, io }) 
   const { commands, events, rt } = createRuntime({
     host,
     env,
-    overrides: { provider: options.provider, model: options.model, cwd, mode },
+    overrides: { provider: options.provider, model: options.model, cwd },
   });
 
   let denied = 0;
@@ -56,7 +54,6 @@ async function runPrintMode({ prompt, options, host, env, stdout, stderr, io }) 
   try {
     result = await commands.chat({
       text: prompt,
-      mode,
       cwd,
       ...(options.yes ? { autoApprove: true } : {}),
     });
@@ -78,7 +75,6 @@ async function runPrintMode({ prompt, options, host, env, stdout, stderr, io }) 
       runId: result.runId,
       provider: provider.mode,
       model: provider.model,
-      mode: mode || rt.session.view.mode,
       deniedCalls,
       usage: { ...rt.session.usage.main },
       cost: { ...rt.session.spend },

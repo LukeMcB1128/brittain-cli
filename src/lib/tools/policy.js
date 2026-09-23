@@ -3,7 +3,7 @@
 
 // Pruned to the v1 tool set (PLAN.md §4.2). The subagent, orchestrator and
 // coder role sets, SUBMIT_IMPLEMENTATION_PLAN_TOOL, and the network tools are
-// not ported. SENSITIVE_TOOLS and DESTRUCTIVE_TOOLS are empty in v1 — none of
+// not ported, and neither is the chat-mode set (chat mode was removed). SENSITIVE_TOOLS and DESTRUCTIVE_TOOLS are empty in v1 — none of
 // their members were ported — but stay as sets so the approval path keeps its
 // shape: destructive shell commands and sensitive reads are still caught by
 // classifying the call itself (see core/approvals.js).
@@ -28,11 +28,6 @@ const CODE_TOOL_NAMES = new Set([
   'ask_user', 'remember',
 ]);
 
-// Chat has no filesystem.
-const CHAT_TOOL_NAMES = new Set([
-  'ask_user', 'remember',
-]);
-
 function selectTools(toolDefinitions, names) {
   return toolDefinitions.filter((definition) => names.has(definition.function.name));
 }
@@ -44,13 +39,10 @@ function createToolPolicy(toolDefinitions) {
     RISKY_TOOLS,
     CODE_TOOL_NAMES,
     CODE_TOOLS: selectTools(toolDefinitions, CODE_TOOL_NAMES),
-    CHAT_TOOL_NAMES,
-    CHAT_TOOLS: selectTools(toolDefinitions, CHAT_TOOL_NAMES),
   };
 }
 
 module.exports = {
-  CHAT_TOOL_NAMES,
   CODE_TOOL_NAMES,
   DESTRUCTIVE_TOOLS,
   RISKY_TOOLS,

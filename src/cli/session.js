@@ -42,7 +42,6 @@ async function startRepl({ options, positionals, env, stdin, stdout, stderr, key
     cwd = path.resolve(options.cwd);
     if (!fs.existsSync(cwd) || !fs.statSync(cwd).isDirectory()) throw new Error(`--cwd is not a directory: ${options.cwd}`);
   }
-  if (options.mode && !['code', 'chat'].includes(options.mode)) throw new Error('--mode must be code or chat.');
 
   // First run of a mode that needs an endpoint or a model: walk through it
   // before the REPL takes the terminal. A --provider override is set up but
@@ -72,20 +71,15 @@ async function startRepl({ options, positionals, env, stdin, stdout, stderr, key
   const runtime = createRuntime({
     host,
     env,
-    overrides: { provider: options.provider, model: options.model, cwd, mode: options.mode },
+    overrides: { provider: options.provider, model: options.model, cwd },
   });
   const { rt, commands } = runtime;
   const settings = rt.config.settings();
-  let mode = options.mode || settings.defaultMode;
 
   if (options.continue) {
     const latest = rt.history.latestFor(cwd);
-    if (!latest) {
-      io.err('No saved chat for this directory yet; starting a new one.');
-    } else {
-      const loaded = commands['history.load']({ id: latest.id });
-      if (loaded.ok) mode = options.mode || loaded.chat.mode || mode;
-    }
+    if (!latest) io.err('No saved chat for this directory yet; starting a new one.');
+    else commands['history.load']({ id: latest.id });
   }
 
   const color = !env.NO_COLOR && !!stdout.isTTY;
@@ -98,7 +92,6 @@ async function startRepl({ options, positionals, env, stdin, stdout, stderr, key
     color,
     live: !!stdout.isTTY,
     historyFile: path.join(host.dataDir, 'repl_history'),
-    mode,
     autoApprove: !!options.yes || settings.autoApprove,
     bridge,
     pagerCommand: env.PAGER || '',
@@ -119,10 +112,7 @@ async function startRepl({ options, positionals, env, stdin, stdout, stderr, key
     if (id) {
       const loaded = commands['history.load']({ id });
       if (!loaded.ok) repl.renderer.line(style.red(`✗ ${loaded.error}`));
-      else {
-        repl.state.mode = loaded.chat.mode === 'chat' ? 'chat' : 'code';
-        repl.renderer.line(style.dim(`Resumed "${loaded.chat.title}" (${loaded.chat.conversation.length} messages).`));
-      }
+      else repl.renderer.line(style.dim(`Resumed "${loaded.chat.title}" (${loaded.chat.conversation.length} messages).`));
       repl.start();
     } else {
       // The picker is /history, answered on the REPL's own interface.

@@ -10,7 +10,7 @@ function definition(name) {
   return { type: 'function', function: { name, parameters: { type: 'object' } } };
 }
 
-test('tool policy derives each mode from one definition registry', () => {
+test('tool policy derives the tool set from one definition registry', () => {
   const policy = createToolPolicy([
     definition('read_file'),
     definition('write_file'),
@@ -20,7 +20,7 @@ test('tool policy derives each mode from one definition registry', () => {
   ]);
 
   assert.deepEqual(policy.CODE_TOOLS.map((item) => item.function.name), ['read_file', 'write_file', 'ask_user', 'remember']);
-  assert.deepEqual(policy.CHAT_TOOLS.map((item) => item.function.name), ['ask_user', 'remember']);
+  assert.equal(policy.CHAT_TOOLS, undefined, 'chat mode was removed');
   assert.equal(policy.RISKY_TOOLS.has('write_file'), true);
   assert.equal(policy.RISKY_TOOLS.has('read_file'), false);
 });

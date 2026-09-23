@@ -4,7 +4,8 @@
 // A chat message, start to finish: into the conversation, through the agent
 // loop, onto disk, and named.
 //
-// Pruned: attachments, auto-branch, the end-of-run report card, and the
+// Pruned: attachments, auto-branch, the end-of-run report card, chat mode
+// (brittain.app covers chat; every run works in a directory), and the
 // renderer's background queue. The source staged every message into history
 // before a queue picked it up, so a chat could keep running while the window
 // showed another; the CLI runs one chat at a time, so submitChat runs the job
@@ -31,8 +32,7 @@ function createChatJobs(rt) {
       title: loaded.ok ? existing.title || 'Chat' : rt.titles.fallbackChatTitle(job.text),
       model: job.model || existing.model || '',
       provider: job.provider || existing.provider || '',
-      mode: job.mode === 'chat' ? 'chat' : 'code',
-      cwd: job.mode === 'chat' ? '' : (job.cwd || ''),
+      cwd: job.cwd || '',
       think: !!job.think,
       autoApprove: !!job.autoApprove,
       runMetrics: rt.session.usage,
@@ -69,20 +69,19 @@ function createChatJobs(rt) {
   }
 
   async function executeChatJob(job) {
-    const { model, text, mode, cwd, autoApprove, think } = job;
-    const runMode = mode === 'chat' ? 'chat' : 'code';
-    if (runMode === 'code' && !cwd) return { ok: false, error: 'Pick a working directory first.' };
+    const { model, text, cwd, autoApprove, think } = job;
+    if (!cwd) return { ok: false, error: 'Pick a working directory first.' };
 
     rt.chatId = job.chatId;
     rt.state.enterSession(job.chatId);
     // Installed after the session switch: enterSession refuses to swap
     // conversations while a run holds an abort controller.
     rt.run.abort = new AbortController();
-    rt.state.rememberConversationView({ model, cwd, mode: runMode });
+    rt.state.rememberConversationView({ model, cwd });
     await rt.compaction.maybePrecompact(model);
     const contextLength = await rt.models.effectiveContext(model);
 
-    if (runMode === 'code') await rt.services.checkpoints.create(cwd); // silent; enables /undo
+    await rt.services.checkpoints.create(cwd); // silent; enables /undo
     rt.session.conversation.push({
       role: 'user',
       content: String(text || '').trim(),
@@ -94,7 +93,7 @@ function createChatJobs(rt) {
     const startedAt = Date.now();
     let outcome = 'ok';
     try {
-      const turn = await rt.agentLoop.runAgentTurn({ model, cwd, autoApprove, think, mode: runMode });
+      const turn = await rt.agentLoop.runAgentTurn({ model, cwd, autoApprove, think });
       return { ok: true, content: turn.lastContent, deniedCalls: turn.deniedCalls, stats: turn.lastStats };
     } catch (err) {
       if (err.name === 'AbortError') { outcome = 'stopped'; return { ok: true, stopped: true }; }
@@ -107,7 +106,7 @@ function createChatJobs(rt) {
     }
   }
 
-  // payload: { text, chatId?, model?, mode?, cwd?, autoApprove?, think? }.
+  // payload: { text, chatId?, model?, cwd?, autoApprove?, think? }.
   // Resolves when the run is over, with { ok, chatId, runId, … }.
   async function submitChat(payload = {}) {
     if (rt.chatJobs.active || rt.run.abort) {
@@ -119,7 +118,6 @@ function createChatJobs(rt) {
     const model = payload.model || provider.model;
     if (!model) return { ok: false, error: `No model selected for ${provider.label}. Run \`brittain provider ${provider.mode}\` or /model to pick one.` };
     const settings = rt.config.settings();
-    const mode = (payload.mode || rt.config.mode || settings.defaultMode) === 'chat' ? 'chat' : 'code';
     const chatId = safeChatId(payload.chatId || rt.chatId || newId('chat')) || newId('chat');
     const job = {
       text,
@@ -127,10 +125,9 @@ function createChatJobs(rt) {
       runId: newId('run'),
       model,
       provider: provider.mode,
-      mode,
-      cwd: mode === 'chat' ? '' : (payload.cwd || rt.config.cwd),
+      cwd: payload.cwd || rt.config.cwd,
       autoApprove: payload.autoApprove ?? settings.autoApprove,
-      think: payload.think ?? (mode === 'chat' ? settings.chatThink : settings.codeThink),
+      think: payload.think ?? settings.codeThink,
     };
 
     rt.chatJobs.active = job;

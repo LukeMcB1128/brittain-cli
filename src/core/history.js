@@ -43,7 +43,7 @@ function createHistory(rt) {
     rt.session.contextState = normalizeContextState(loaded.chat.contextState);
     rt.session.usage = rt.state.restoreUsage(loaded.chat.runMetrics);
     rt.session.spend = loaded.chat.spend || rt.session.spend;
-    rt.state.rememberConversationView({ model: loaded.chat.model, cwd: loaded.chat.cwd, mode: loaded.chat.mode });
+    rt.state.rememberConversationView({ model: loaded.chat.model, cwd: loaded.chat.cwd || rt.config.cwd });
     return { ok: true, chat: loaded.chat };
   }
 

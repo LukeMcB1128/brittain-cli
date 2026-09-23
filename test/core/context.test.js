@@ -114,8 +114,6 @@ test('remember persists across chats and appears in the next prompt as data', as
   assert.equal(memory.inRepo, false);
   assert.ok(memory.path.startsWith(path.join(runtime.rt.host.dataDir, 'memory')));
 
-  // Chat mode's memory is separate and user-wide.
-  assert.equal(runtime.commands['memory.get']({ mode: 'chat' }).globalChat, true);
 });
 
 test('in-repo memory is used when .brittain/MEMORY.md exists, and refuses secrets', async (t) => {
@@ -160,7 +158,7 @@ test('/context lists the system prompt, the tools, and each message with its tok
   assert.equal(result.totalTokens, result.systemTokens + result.toolTokens + result.rows.reduce((sum, row) => sum + row.tokens, 0));
 
   const text = formatContext(result);
-  assert.match(text, /^Context: [\d,]+ of 32,768 tokens \(\d+%\) · code · alpha-model/);
+  assert.match(text, /^Context: [\d,]+ of 32,768 tokens \(\d+%\) · alpha-model/);
   assert.match(text, /system prompt\s+[\d,]+/);
   assert.match(text, /tools \(17\)\s+[\d,]+/);
   assert.match(text, /messages \(4\)\s+[\d,]+/);

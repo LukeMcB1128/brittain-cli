@@ -34,7 +34,7 @@ const { createMemory } = require('./memory');
 const { createExport } = require('./export');
 
 // overrides: per-invocation choices that must not persist (--provider,
-// --model, --mode, --cwd).
+// --model, --cwd).
 function createRuntime({ host, env = process.env, overrides = {} } = {}) {
   assertHost(host);
   if (overrides.provider && !isMode(overrides.provider)) {
@@ -76,7 +76,6 @@ function createRuntime({ host, env = process.env, overrides = {} } = {}) {
       if (model !== undefined) live.model = model;
     },
     cwd: overrides.cwd || process.cwd(),
-    mode: overrides.mode === 'chat' ? 'chat' : overrides.mode === 'code' ? 'code' : '',
   };
 
   rt.sink = createRunSink({ meta: () => ({ chatId: rt.chatId, runId: rt.run.id }) });
@@ -120,7 +119,7 @@ function createRuntime({ host, env = process.env, overrides = {} } = {}) {
     const startedAt = Date.now();
     try {
       const numCtx = await rt.models.effectiveContext(model);
-      const thinkParam = await rt.models.thinkValue(model, think === undefined ? settings.chatThink : !!think);
+      const thinkParam = await rt.models.thinkValue(model, think === undefined ? settings.codeThink : !!think);
       const result = await rt.stream.streamChat(
         model,
         [{ role: 'user', content: String(prompt || '') }],
@@ -130,7 +129,7 @@ function createRuntime({ host, env = process.env, overrides = {} } = {}) {
         numCtx,
         null,
         { toolCallRetries: 0 },
-        settings.chatTemperature,
+        settings.codeTemperature,
       );
       rt.state.recordUsage('main', result.stats);
       if (result.stats) rt.state.publishContextStats(result.stats, numCtx);

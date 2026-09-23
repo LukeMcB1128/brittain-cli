@@ -72,7 +72,7 @@ function createState(rt) {
     // session.
     id: newSessionIdValue(),
     conversation: [], // provider-format messages, excluding system
-    view: { model: '', cwd: '', mode: 'code' },
+    view: { model: '', cwd: '' },
     contextState: normalizeContextState(),
     usage: freshUsage(),
     // What this conversation has cost. Per session, so /cost answers for the
@@ -93,11 +93,8 @@ function createState(rt) {
   }
 
   function rememberConversationView(view = {}) {
-    session.view = {
-      ...session.view,
-      ...view,
-      mode: view.mode === 'chat' ? 'chat' : (view.mode || session.view.mode || 'code'),
-    };
+    const { model, cwd } = { ...session.view, ...view };
+    session.view = { model, cwd };
     return session.view;
   }
 
@@ -181,7 +178,7 @@ function createState(rt) {
   // since both are sent every time but live outside the conversation.
   function currentConversationTokens(model = session.view.model) {
     const view = { ...session.view, model: model || session.view.model };
-    const overhead = rt.prompts.fixedOverheadTokens(view.cwd, view.model, view.mode);
+    const overhead = rt.prompts.fixedOverheadTokens(view.cwd || rt.config.cwd, view.model);
     return overhead + estimateContextTokens(modelReadyMessages(session.conversation));
   }
 

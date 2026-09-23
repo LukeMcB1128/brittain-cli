@@ -55,8 +55,6 @@ const {
   RISKY_TOOLS,
   CODE_TOOLS,
   CODE_TOOL_NAMES,
-  CHAT_TOOLS,
-  CHAT_TOOL_NAMES,
 } = createToolPolicy(TOOL_DEFS);
 
 module.exports = {
@@ -66,8 +64,6 @@ module.exports = {
   DESTRUCTIVE_TOOLS,
   CODE_TOOLS,
   CODE_TOOL_NAMES,
-  CHAT_TOOLS,
-  CHAT_TOOL_NAMES,
   createToolExecutor,
   isDestructiveCommand: shell.isDestructiveCommand,
   resolveForWrite: files.resolveForWrite,

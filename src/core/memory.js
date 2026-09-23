@@ -12,13 +12,12 @@ const workspace = require('../lib/workspace');
 
 function createMemory(rt) {
   function get(cwd) {
-    const scope = cwd || null;
+    const scope = cwd || rt.config.cwd;
     return {
       ok: true,
       content: rt.tools.readMemory(scope),
       path: rt.tools.memoryPath(scope),
-      inRepo: !!scope && workspace.hasWorkspace(scope),
-      globalChat: !scope,
+      inRepo: workspace.hasWorkspace(scope),
       legacyContent: rt.tools.readLegacyMemory(),
       legacyPath: rt.tools.legacyMemoryPath(),
     };

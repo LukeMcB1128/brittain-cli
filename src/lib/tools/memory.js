@@ -2,9 +2,10 @@
 'use strict';
 
 // ---------- persistent memory ----------
-// Plain-text lessons saved by `remember`. Code mode scopes them to the selected
-// project; folder-free Chat mode uses one user-wide file. Project paths are
-// hashed so app data stays filename-safe; projects.json keeps readable names.
+// Plain-text lessons saved by `remember`, scoped to the project. Project paths
+// are hashed so app data stays filename-safe; projects.json keeps readable
+// names. Pruned: the user-wide file for folder-free Chat mode (chat mode was
+// removed).
 //
 // The data directory is passed in rather than held in module state (the
 // source's initTools), so everything here is a function of its arguments.
@@ -28,9 +29,6 @@ function memoryDir(dataDir) {
 }
 
 function memoryPath(dataDir, cwd) {
-  // Chat mode is deliberately folder-free. Its remembered lessons are
-  // user-wide instead of being attached to a project that does not exist.
-  if (!cwd) return path.join(memoryDir(dataDir), 'chat.md');
   // A project that opted into the in-repo workspace keeps its memory there,
   // where it shows up in diffs; everything else stays in app data.
   if (workspace.hasWorkspace(cwd)) return workspace.memoryFile(cwd);
@@ -71,21 +69,18 @@ function registerProjectMemory(dataDir, cwd) {
 function remember(dataDir, args, cwd) {
   const fact = String(args.fact || '').trim().replace(/\s*\n+\s*/g, ' ');
   if (!fact) return 'Error: fact must not be empty.';
-  const scope = cwd ? 'this project' : 'folder-free Chat mode';
-  if (readMemory(dataDir, cwd).includes(fact)) return `Already remembered for ${scope}.`;
+  if (readMemory(dataDir, cwd).includes(fact)) return 'Already remembered for this project.';
   const target = memoryPath(dataDir, cwd);
   // In-repo memory is potentially committed and pushed. A remembered
   // credential there is a published credential, so anything key-shaped is
   // refused rather than written.
-  if (cwd && workspace.hasWorkspace(cwd) && workspace.looksLikeSecret(fact)) {
+  if (workspace.hasWorkspace(cwd) && workspace.looksLikeSecret(fact)) {
     return 'Error: this fact looks like a credential or key, and project memory lives inside the repository (.brittain/MEMORY.md). Not saved. Rephrase without the secret value.';
   }
   fs.mkdirSync(path.dirname(target), { recursive: true });
   fs.appendFileSync(target, '- ' + fact + '\n', 'utf8');
-  if (cwd) registerProjectMemory(dataDir, cwd);
-  return cwd
-    ? 'Remembered for this project. This will be available in future chats that use the same directory.'
-    : 'Remembered for folder-free Chat mode. This will be available in future Chat sessions.';
+  registerProjectMemory(dataDir, cwd);
+  return 'Remembered for this project. This will be available in future chats that use the same directory.';
 }
 
 module.exports = {

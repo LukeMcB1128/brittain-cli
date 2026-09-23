@@ -13,21 +13,14 @@ const { createRuntime } = require('../../src/core/runtime');
 const { estimateContextTokens } = require('../../src/lib/context-estimator');
 const { createTestHost } = require('../helpers/test-host');
 
-const BUDGET = { code: 3000, chat: 800 };
+const BUDGET = 3000;
 
-function payloadTokens(rt, mode, cwd) {
-  const system = { role: 'system', content: rt.prompts.promptFor(mode, cwd, 'brittain-4') };
-  const tools = rt.prompts.activeToolDefs(mode === 'chat');
-  return estimateContextTokens(system) + estimateContextTokens(tools);
-}
-
-for (const mode of ['code', 'chat']) {
-  test(`${mode} mode fits its token budget (${BUDGET[mode]})`, () => {
-    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'bc-budget-'));
-    const { rt } = createRuntime({ host: createTestHost(), overrides: { cwd } });
-    const tokens = payloadTokens(rt, mode, cwd);
-    assert.ok(tokens <= BUDGET[mode], `${mode}: ${tokens} tokens > ${BUDGET[mode]}`);
-    // The inspector's number is the same one the loop sends.
-    assert.equal(rt.prompts.fixedOverheadTokens(cwd, 'brittain-4', mode), tokens);
-  });
-}
+test(`the system prompt and tools fit the token budget (${BUDGET})`, () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'bc-budget-'));
+  const { rt } = createRuntime({ host: createTestHost(), overrides: { cwd } });
+  const system = { role: 'system', content: rt.prompts.systemPrompt(cwd, 'brittain-4') };
+  const tokens = estimateContextTokens(system) + estimateContextTokens(rt.prompts.activeToolDefs());
+  assert.ok(tokens <= BUDGET, `${tokens} tokens > ${BUDGET}`);
+  // The inspector's number is the same one the loop sends.
+  assert.equal(rt.prompts.fixedOverheadTokens(cwd, 'brittain-4'), tokens);
+});

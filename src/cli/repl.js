@@ -59,7 +59,6 @@ function createRepl({
   color = false,
   live = false,
   historyFile = '',
-  mode = 'code',
   autoApprove = false,
   setupProvider = null,
   pagerCommand = '',
@@ -85,7 +84,7 @@ function createRepl({
   const echo = rl._writeToOutput?.bind(rl);
   rl._writeToOutput = (text) => { if (!muted && echo) echo(text); };
 
-  const state = { mode, autoApprove };
+  const state = { autoApprove };
   let running = false;       // a model run is in progress
   let busy = false;          // a message or slash command is being handled
   let waiting = null;        // resolves the next line while something is asking
@@ -154,7 +153,6 @@ function createRepl({
   function statusLine() {
     const provider = rt.providers.resolve();
     const parts = [
-      state.mode,
       `${provider.mode}/${provider.model || '(no model)'}`,
       tildify(rt.config.cwd),
       `ctx ${renderer.contextPercent()}%`,
@@ -252,7 +250,7 @@ function createRepl({
     const before = { ...rt.session.usage.main };
     let result;
     try {
-      result = await commands.chat({ text, mode: state.mode, autoApprove: state.autoApprove });
+      result = await commands.chat({ text, autoApprove: state.autoApprove });
     } finally {
       running = false;
     }

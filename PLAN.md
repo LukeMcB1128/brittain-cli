@@ -3,7 +3,7 @@
 A lightweight, pure-Node, terminal-first version of Brittain Code, built in a
 **new repository** by porting the essential runtime out of the Electron app
 (`brittain-code`). The app is the reference implementation; v1 ports its
-**core** — agent loop, curated tools, system prompts, memory, code and chat
+**core** — agent loop, curated tools, system prompts, memory, code
 modes — and deliberately leaves everything else behind.
 
 This document is written for coding agents. Read **§1 Rules** before touching
@@ -25,7 +25,7 @@ anything, then work **one milestone per PR** in the order given in **§8**.
    API with no configuration beyond (optionally) a key.
 
 ### Goals (v1)
-- `brittain` — interactive REPL in the current directory, **code** and **chat**
+- `brittain` — interactive REPL in the current directory, **code**
   modes.
 - `brittain -p "<prompt>"` — one-shot, non-interactive, scriptable.
 - Three server modes, switchable at any time (§5): **Brittain** (default),
@@ -115,7 +115,7 @@ If a task seems to need one of these, stop and ask — don't pull it in.
 | Data dir | `~/.brittain/` (override `BRITTAIN_HOME`), mode `0700`. Holds `settings.json`, `credentials.json` (fallback only), `history/`, `memory/`, `repl_history`. |
 | Secrets | macOS: Keychain via `/usr/bin/security` (service `brittain-cli`, account = secret name). Linux: `secret-tool` if on PATH. Fallback: `credentials.json` at `0600` with a plain warning that it is unencrypted (behaviour already in `src/main/secrets.js`). Env vars override: `BRITTAIN_API_KEY`, `OPENAI_API_KEY`. Never put a secret in a process argument visible to `ps`. |
 | Default cwd | `process.cwd()`. |
-| Default mode | `code`. `/mode chat` or `--mode chat` switches. |
+| Default mode | `code`. ~~`/mode chat` or `--mode chat` switches.~~ **Chat mode removed (2026-09-23):** brittain.app covers chat, so the CLI is code mode only. Its prompt, tool set, settings (`defaultMode`, `chatTemperature`, `chatThink`, `globalChatInstructions`), user-wide memory, `/mode` and `--mode` are gone. |
 | Default approval | Supervised: every risky tool asks. `--yes` / `/auto on` = trusted (risky tools run; invariants still ask). Only the two built-in policies from `src/main/autonomy.js`; no custom policies file. |
 | REPL UI | `node:readline`, ANSI colors off when `NO_COLOR` is set or stdout isn't a TTY, minimal hand-rolled markdown (headings, bold, inline code, fences, lists). |
 | Arg parsing | `node:util` `parseArgs`. |
@@ -134,7 +134,7 @@ schemas** for an empty conversation, no memory:
 | Mode | Budget |
 |---|---|
 | code | **≤ 3,000 tokens** |
-| chat | **≤ 800 tokens** |
+| ~~chat~~ | ~~≤ 800 tokens~~ (chat mode removed) |
 
 `test/core/budget.test.js` builds both payloads exactly as the agent loop sends
 them and fails over budget. The PR for M4 records the actual numbers next to
@@ -173,7 +173,7 @@ drop references to tools that don't exist in v1.
 | `ask_user` | | |
 | `remember` | | memory (§4.3) |
 
-**Chat mode (2):** `ask_user`, `remember`.
+~~**Chat mode (2):** `ask_user`, `remember`.~~ Chat mode removed (see §3).
 
 Everything else in `tools.js` (≈40 tools) is not ported. The policy sets in
 `src/tools/policy.js` (`RISKY_TOOLS`, `SENSITIVE_TOOLS`, `DESTRUCTIVE_TOOLS`,
@@ -483,7 +483,7 @@ the source's one retry; thinking goes to `stream:thinking` and is hidden unless
 ### M4 — Tools, approvals, agent loop, print mode (L)
 - `prompts.js`, `approvals.js`, `questions.js`, `agent-loop.js`,
   `chat-jobs.js`, `history.js`, `title.js`, `checkpoints.js`, `commands.js`.
-- `brittain -p "<prompt>" [--model] [--provider] [--cwd] [--mode code|chat]
+- `brittain -p "<prompt>" [--model] [--provider] [--cwd] ~~[--mode code|chat]~~
   [--yes] [--output-format text|json|stream-json]`. Non-interactive: a call
   needing approval without `--yes` is **denied**, never hangs. Exit codes:
   `0` ok, `1` error, `2` finished with denied calls.
@@ -500,7 +500,7 @@ in the PR.
 
 ### M5 — Interactive REPL (L)
 - `repl.js`, `render.js`, `markdown.js`, `prompts.js`, `first-run.js`.
-- Status line before each prompt: `mode · provider/model · cwd · context %`.
+- Status line before each prompt: `provider/model · cwd · context %` (the mode was dropped with chat mode).
 - Streamed assistant text; thinking dimmed and collapsed to one line after the
   turn; tool calls `→ name(args…)`, results `← name: first line` (reuse
   `TRANSCRIPT_CHANNELS`); a stats line after each turn (tokens, tok/s, cost
@@ -535,9 +535,9 @@ prompt, tools, and per-message tokens.
 |---|---|
 | `/help` | Everything below, nothing more |
 | `/clear` | New chat |
-| `/mode code\|chat` | Switch mode |
+| ~~`/mode code\|chat`~~ | ~~Switch mode~~ (removed with chat mode) |
 | `/provider [brittain\|openai\|ollama]` | §5.1 |
-| `/model [name]` | Fuzzy match / picker for the active mode |
+| `/model [name]` | Fuzzy match / picker for the active provider |
 | `/auto on\|off` | Trusted vs supervised |
 | `/think on\|off` | Thinking for the active mode |
 | `/compact`, `/context`, `/usage`, `/cost`, `/ledger` | As source |

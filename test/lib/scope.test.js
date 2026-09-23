@@ -17,7 +17,6 @@ const V1_CODE_TOOLS = [
   'find_symbol', 'write_file', 'edit_file', 'apply_patch', 'delete_file', 'move_file',
   'run_command', 'git_status', 'read_git_diff', 'get_git_log', 'ask_user', 'remember',
 ];
-const V1_CHAT_TOOLS = ['ask_user', 'remember'];
 
 // Every tool the app defines that v1 leaves behind (brittain-code@fa01d50 tools.js).
 const NOT_IN_V1 = [
@@ -43,7 +42,7 @@ function sourceFiles(dir) {
 test('defs.js defines exactly the v1 tool set', () => {
   assert.deepEqual(TOOL_DEFS.map((d) => d.function.name).sort(), [...V1_CODE_TOOLS].sort());
   assert.deepEqual(tools.CODE_TOOLS.map((d) => d.function.name).sort(), [...V1_CODE_TOOLS].sort());
-  assert.deepEqual(tools.CHAT_TOOLS.map((d) => d.function.name).sort(), [...V1_CHAT_TOOLS].sort());
+  assert.equal(tools.CHAT_TOOLS, undefined, 'chat mode was removed');
   for (const definition of TOOL_DEFS) {
     assert.equal(definition.type, 'function');
     assert.equal(definition.function.parameters.type, 'object', definition.function.name);

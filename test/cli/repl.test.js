@@ -15,7 +15,7 @@ const { createRepl, loadHistory } = require('../../src/cli/repl');
 const { createFakeProvider } = require('../helpers/fake-provider');
 const { createTestHost, settingsFor } = require('../helpers/test-host');
 
-async function session(t, { turns, lines = [], mode = 'code' }) {
+async function session(t, { turns, lines = [] }) {
   const fake = await createFakeProvider({ turns }).start();
   t.after(() => fake.stop());
   const cwd = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'bc-repl-')));
@@ -31,7 +31,7 @@ async function session(t, { turns, lines = [], mode = 'code' }) {
   let exited;
   const done = new Promise((resolve) => { exited = resolve; });
   const repl = createRepl({
-    runtime, input, output, mode, bridge,
+    runtime, input, output, bridge,
     historyFile: path.join(host.dataDir, 'repl_history'),
     exit: () => exited(),
   });
@@ -55,7 +55,7 @@ test('a message runs, an approval is answered at the prompt, and the answer is s
   await s.end();
   assert.equal(fs.readFileSync(path.join(s.cwd, 'note.txt'), 'utf8'), 'hi');
   const out = s.output();
-  assert.match(out, /code · ollama\/alpha-model · .* · ctx \d+%/);
+  assert.match(out, /^ollama\/alpha-model · .* · ctx \d+%/m);
   assert.match(out, /Allow write_file note\.txt\? \[y\]es \/ \[n\]o \/ \[a\]lways this session \/ \[v\]iew y/);
   assert.match(out, /→ write_file\(path=note\.txt content=hi\)/);
   assert.match(out, /Wrote note\.txt\./);
@@ -91,14 +91,13 @@ test('ask_user questions take a number or free text', async (t) => {
 
 test('slash commands work at the prompt, and /help lists every command', async (t) => {
   const s = await session(t, { turns: [{ text: 'hello' }] });
-  s.send('/help', '/mode chat', '/auto on', '/nope');
+  s.send('/help', '/auto on', '/nope');
   await s.end();
   const out = s.output();
   for (const name of s.repl.slash.names()) assert.ok(out.includes(name), `${name} in /help`);
-  assert.match(out, /Mode: chat/);
   assert.match(out, /Auto-approve on/);
   assert.match(out, /Unknown command \/nope/);
-  assert.equal(s.repl.state.mode, 'chat');
+  assert.equal(s.repl.state.autoApprove, true);
 });
 
 test('a trailing backslash continues the message onto the next line', async (t) => {
