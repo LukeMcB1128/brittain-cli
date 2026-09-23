@@ -400,3 +400,13 @@ test('tool results are capped at about an eighth of the window', () => {
   assert.equal(toolResultLimit(262_144), MAX_TOOL_RESULT_CHARS, 'never above the ceiling');
   assert.equal(toolResultLimit(0), MAX_TOOL_RESULT_CHARS, 'unknown window: the old cap');
 });
+
+test('a caller can raise the summary floor, and the retry names it', () => {
+  const summary = SUMMARY_SECTIONS.map((s, i) => `${s.name}: ${Array.from({ length: 30 }, (_, n) => `w${i}_${n}`).join(' ')}`).join('\n');
+  assert.equal(validateSummary(summary, { sourceTokens: 1000 }).ok, true);
+  const raised = validateSummary(summary, { sourceTokens: 1000, minimumTokens: 600 });
+  assert.equal(raised.ok, false);
+  assert.equal(raised.required, 600);
+  assert.match(retryInstruction(raised), /Write at least 600/);
+  assert.equal(validateSummary(summary, { minimumTokens: 99_999 }).required, 1200, 'capped');
+});

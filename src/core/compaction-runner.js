@@ -34,6 +34,8 @@ const {
 } = require('../lib/compaction');
 const { estimateTokens, fitToWindow, modelReadyMessages } = require('./context-hygiene');
 
+const SUMMARIZER_RESULT_CHARS = 3000;
+
 function createCompactionRunner(rt) {
   const sink = () => rt.sink;
 
@@ -76,12 +78,15 @@ function createCompactionRunner(rt) {
       const transcript = chosen.summarize.filter((message) => !message?.compactionRecord);
 
       // drop bulky tool outputs from what the summarizer sees — the summarizer
-      // must not context-shift itself
+      // must not context-shift itself. Deviation: 3,000 characters per result
+      // rather than the source's 1,500; at 1,500 a file's findings were mostly
+      // cut before the summarizer saw them, and chunking already keeps the
+      // input inside the window.
       const windowBudget = Math.floor(contextLength * 0.8);
       const summarizerInput = modelReadyMessages(transcript)
         .map((m) =>
-          m.role === 'tool' && String(m.content).length > 1500
-            ? { ...m, content: String(m.content).slice(0, 1500) + '…[truncated]' }
+          m.role === 'tool' && String(m.content).length > SUMMARIZER_RESULT_CHARS
+            ? { ...m, content: String(m.content).slice(0, SUMMARIZER_RESULT_CHARS) + '…[truncated]' }
             : m
         );
       const sourceTokens = estimateTokens(summarizerInput);
@@ -94,7 +99,12 @@ function createCompactionRunner(rt) {
       const ledger = buildLedger(head);
       const ledgerText = renderLedger(ledger);
 
-      const minimumTokens = minimumSummaryTokens(sourceTokens);
+      // A record that has to carry one line per file needs room for them: a
+      // summary of fifteen files once came back at 286 tokens and the model
+      // re-read what it had already read.
+      const filesTouched = ledger.read.length + ledger.changed.length;
+      const findingsFloor = chosen.inTurn && filesTouched ? 150 + 60 * filesTouched : 0;
+      const minimumTokens = Math.max(minimumSummaryTokens(sourceTokens), Math.min(1200, findingsFloor));
       const priorReady = priorRecord ? [{ role: 'user', content: priorRecordPreamble(priorRecord) }] : [];
 
       // Summarizing is extraction, not deliberation, and the trace competes
@@ -168,7 +178,7 @@ function createCompactionRunner(rt) {
           maxTokens: Math.max(512, summaryRoom),
           usageBucket: 'main',
         });
-        check = validateSummary(summary, { sourceTokens, estimateTokens });
+        check = validateSummary(summary, { sourceTokens, estimateTokens, minimumTokens: findingsFloor });
         // Retry for missing headings too, but only once — a long summary
         // without them is still worth keeping.
         if (check.ok && check.structured) break;
@@ -177,6 +187,14 @@ function createCompactionRunner(rt) {
           msgs.push({ role: 'assistant', content: summary || '(empty response)' });
           msgs.push({ role: 'user', content: retryInstruction(check) });
         }
+      }
+
+      // The findings floor is what the retry asks for, not a reason to throw a
+      // record away: a short summary that clears the ordinary floor is still
+      // far better than none.
+      if (!check.ok && findingsFloor) {
+        const ordinary = validateSummary(summary, { sourceTokens, estimateTokens });
+        if (ordinary.ok) check = ordinary;
       }
 
       // Degrade toward raw text, never toward nothing. If the model will not
@@ -216,7 +234,7 @@ function createCompactionRunner(rt) {
       const notice = degraded
         ? 'Compaction could not produce a usable summary, so the earlier conversation was dropped and only the most recent turns below were kept. Re-read anything you need from earlier work rather than assuming it.'
         : kept.inTurn
-          ? 'This conversation was compacted to save context, partway through the current request. Continue from the summary below: the request itself and its most recent steps follow it intact, and the summary records what the earlier steps found. Do not redo work the summary says is done.'
+          ? 'This conversation was compacted to save context, partway through the current request. Continue from the summary below: the request itself and its most recent steps follow it intact, and the summary records what the earlier steps found. Do not redo work the summary says is done — re-read a file only when you need its exact text.'
           : 'This conversation was compacted to save context. Continue from the summary below; the most recent turns that follow it are intact.';
 
       rt.session.conversation = [

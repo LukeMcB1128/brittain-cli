@@ -118,3 +118,9 @@ test('an unparseable stored endpoint falls back instead of losing every setting'
   assert.equal(settings.providers.ollama.endpoint, 'http://127.0.0.1:11434');
   assert.equal(settings.maxAgentSteps, 20);
 });
+
+test('auto-compaction defaults to 80% of the window', () => {
+  assert.equal(DEFAULT_SETTINGS.compactThreshold, 0.8);
+  assert.equal(normalizeSettings({}).compactThreshold, 0.8);
+  assert.equal(normalizeSettings({ compactThreshold: 0.7 }).compactThreshold, 0.7, 'a stored choice is kept');
+});

@@ -163,9 +163,11 @@ function missingSections(text) {
 // usable at all; `structured` means it is fully compliant. A long, unstructured
 // summary is still far better than discarding the session, so the caller is
 // allowed to accept one while retrying for the other.
-function validateSummary(summary, { sourceTokens = 0, estimateTokens = estimateTokensDefault } = {}) {
+// `minimumTokens` raises the floor for a caller that knows the record has to
+// hold more than the source size suggests (CLI: one line per file read).
+function validateSummary(summary, { sourceTokens = 0, estimateTokens = estimateTokensDefault, minimumTokens = 0 } = {}) {
   const text = String(summary || '').trim();
-  const required = minimumSummaryTokens(sourceTokens);
+  const required = Math.max(minimumSummaryTokens(sourceTokens), Math.min(1200, Number(minimumTokens) || 0));
   if (!text) return { ok: false, structured: false, reason: 'empty', tokens: 0, required, missing: [] };
   const tokens = estimateTokens(text);
   const missing = missingSections(text);
@@ -185,7 +187,7 @@ function validateSummary(summary, { sourceTokens = 0, estimateTokens = estimateT
 // The instruction that asks for a record rather than a paragraph.
 function summaryInstruction({ tailTurns = 0, minimumTokens = 0, inTurnSteps } = {}) {
   const scope = inTurnSteps !== undefined
-    ? `Summarize the conversation above so work can continue in a fresh session. The user's current request${inTurnSteps ? ` and its ${inTurnSteps} most recent ${inTurnSteps === 1 ? 'step is' : 'steps are'}` : ' is'} being kept word for word. Carry forward everything else — including what the earlier steps of the current request found, file by file — since those steps will not be shown again.`
+    ? `Summarize the conversation above so work can continue in a fresh session. The user's current request${inTurnSteps ? ` and its ${inTurnSteps} most recent ${inTurnSteps === 1 ? 'step is' : 'steps are'}` : ' is'} being kept word for word. Carry forward everything else, since those earlier steps will not be shown again. Under STATE, give every file that was read or listed its own line: its path and what it contains or showed that matters for the request. Findings are the point of this record — without them the work has to be done again.`
     : tailTurns
     ? `Summarize the conversation above so work can continue in a fresh session. The ${tailTurns} most recent ${tailTurns === 1 ? 'turn is' : 'turns are'} being kept word for word and are not shown to you, so do not try to cover them — carry forward everything earlier that they would not reveal on their own.`
     : 'Summarize this entire conversation so work can continue seamlessly in a fresh session.';

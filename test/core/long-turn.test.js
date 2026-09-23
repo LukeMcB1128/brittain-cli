@@ -134,3 +134,71 @@ test('a request that cannot fit even after compacting is refused with a clear me
   assert.match(result.error, /4,096-token window leaves room for [\d,]+\. .*Start a new chat with \/clear, or switch to a model with a larger window\./);
   assert.equal(fake.chats.length, 0, 'nothing was sent to the model');
 });
+
+test('at the step cap the model is warned first, then asked to answer with tools off', async (t) => {
+  const cwd = repo();
+  const bodies = [];
+  const fake = await createFakeProvider({
+    respond: (body) => {
+      bodies.push(body);
+      const first = String(body.messages?.[0]?.content || '');
+      if (!body.tools && /Create a clear title/.test(first)) return { text: 'T' };
+      if (!body.tools) return { text: 'Final overview: ten modules of computed constants.' };
+      // A model that never stops exploring.
+      return { toolCalls: [{ name: 'read_file', arguments: { path: `module${bodies.length % FILES}.js` } }] };
+    },
+  }).start();
+  t.after(() => fake.stop());
+  const host = createTestHost({ settings: { ...settingsFor('ollama', fake), maxAgentSteps: 5 } });
+  const runtime = createRuntime({ host, overrides: { cwd } });
+  const seen = collect(runtime.events);
+  const result = await runtime.commands.chat({ text: REQUEST, cwd });
+
+  assert.equal(result.ok, true, result.error);
+  assert.equal(result.content, 'Final overview: ten modules of computed constants.');
+  const agent = bodies.filter((body) => body.tools);
+  assert.equal(agent.length, 5, 'the cap still holds');
+  assert.ok(agent.at(-1).messages.some((m) => /You have 1 model call left for this request\. Stop exploring/.test(m.content)));
+  const final = bodies.find((body) => !body.tools && /used all 5 steps/.test(String(body.messages.at(-1)?.content)));
+  assert.ok(final, 'a tools-off final request was made');
+  assert.ok(seen.some((e) => e.channel === 'stream:info' && /asking for a final answer without tools/.test(e.payload)));
+  assert.ok(seen.some((e) => e.channel === 'stream:message' && /Final overview/.test(e.payload)));
+  const saved = runtime.rt.services.historyStore.load(result.chatId).chat.conversation;
+  assert.equal(saved.at(-1).content, 'Final overview: ten modules of computed constants.');
+});
+
+test('the summarizer is asked for a line per file and sees more of each result', async (t) => {
+  const cwd = repo();
+  let reads = 0;
+  const summarizerBodies = [];
+  const fake = await createFakeProvider({
+    contextLength: 65_536,
+    respond: (body) => {
+      if (!body.tools) {
+        if (/Create a clear title/.test(String(body.messages?.[0]?.content))) return { text: 'T' };
+        summarizerBodies.push(body);
+        // Structured and past the ordinary floor, but short of one line per file.
+        return { text: ['GOAL: report.', 'CONSTRAINTS: none.', 'DECISIONS: read modules.', 'STATE: modules read.', 'NEXT: answer.',
+          Array.from({ length: 50 }, (_, n) => `brief${summarizerBodies.length}_${n}`).join(' ')].join('\n') };
+      }
+      if (reads < 4) return { toolCalls: [{ name: 'read_file', arguments: { path: `module${reads++}.js` } }] };
+      return { text: 'done' };
+    },
+  }).start();
+  t.after(() => fake.stop());
+  const host = createTestHost({ settings: settingsFor('ollama', fake) });
+  const runtime = createRuntime({ host, overrides: { cwd } });
+  await runtime.commands.chat({ text: REQUEST, cwd });
+  const result = await runtime.commands.compact();
+  assert.equal(result.ok, true, result.error);
+  const first = summarizerBodies[0].messages;
+  assert.match(first.at(-1).content, /give every file that was read or listed its own line/);
+  const toolContents = first.filter((m) => m.role === 'tool').map((m) => m.content);
+  assert.ok(toolContents.some((content) => content.length > 1500 && content.length <= 3000 + 20), 'results up to 3,000 characters');
+  // The scripted record is shorter than the per-file floor: one corrective
+  // retry, then the shorter record is kept rather than thrown away.
+  assert.equal(summarizerBodies.length, 2);
+  assert.match(summarizerBodies[1].messages.at(-1).content, /too thin to resume work from/);
+  assert.equal(result.degraded, false);
+  assert.ok(runtime.rt.session.conversation.some((m) => m.compactionRecord));
+});

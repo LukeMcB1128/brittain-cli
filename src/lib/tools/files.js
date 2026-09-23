@@ -205,19 +205,54 @@ function globToRegex(glob) {
 
 // ---------- file tools ----------
 
+// CLI addition. A model that guesses a path gets "ENOENT" and guesses again —
+// one session tried seven test files that did not exist, one at a time. Say
+// what IS there, from the nearest directory that exists.
+const MISSING_LISTING_LIMIT = 40;
+
+function missingPathError(cwd, requested, abs) {
+  const root = fs.realpathSync(cwd);
+  let dir = path.dirname(abs);
+  while (!fs.existsSync(dir) && dir.length > root.length) dir = path.dirname(dir);
+  const rel = (target) => path.relative(root, target).split(path.sep).join('/') || '.';
+  let listing = '';
+  try {
+    const entries = fs.readdirSync(dir, { withFileTypes: true })
+      .filter((entry) => entry.name !== '.git' && entry.name !== 'node_modules')
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((entry) => entry.name + (entry.isDirectory() ? '/' : ''));
+    const shown = entries.slice(0, MISSING_LISTING_LIMIT).join(', ');
+    const more = entries.length > MISSING_LISTING_LIMIT ? `, … (${entries.length - MISSING_LISTING_LIMIT} more)` : '';
+    listing = entries.length ? ` ${rel(dir)}/ contains: ${shown}${more}.` : ` ${rel(dir)}/ is empty.`;
+  } catch {}
+  return `Error: No such file: ${requested}.${listing} Use an existing path, or search_files/browse_files to find the right one — do not guess.`;
+}
+
+function readExisting(cwd, requested, read) {
+  const p = resolveInside(cwd, requested);
+  try {
+    return read(p);
+  } catch (error) {
+    if (error.code === 'ENOENT') return missingPathError(cwd, requested, p);
+    throw error;
+  }
+}
+
 async function readFile(args, cwd) {
-  const p = resolveInside(cwd, args.path);
-  const stat = fs.statSync(p);
-  if (stat.size > 2_000_000) return `Error: file too large (${stat.size} bytes)`;
-  return truncate(fs.readFileSync(p, 'utf8'));
+  return readExisting(cwd, args.path, (p) => {
+    const stat = fs.statSync(p);
+    if (stat.size > 2_000_000) return `Error: file too large (${stat.size} bytes)`;
+    return truncate(fs.readFileSync(p, 'utf8'));
+  });
 }
 
 async function getFileLines(args, cwd) {
-  const p = resolveInside(cwd, args.path);
-  const lines = fs.readFileSync(p, 'utf8').split('\n');
-  const start = Math.max(0, (args.start || 1) - 1);
-  const end = args.end ? Math.min(lines.length, args.end) : Math.min(lines.length, start + 10);
-  return truncate(lines.slice(start, end).join('\n')) || '(no lines found)';
+  return readExisting(cwd, args.path, (p) => {
+    const lines = fs.readFileSync(p, 'utf8').split('\n');
+    const start = Math.max(0, (args.start || 1) - 1);
+    const end = args.end ? Math.min(lines.length, args.end) : Math.min(lines.length, start + 10);
+    return truncate(lines.slice(start, end).join('\n')) || '(no lines found)';
+  });
 }
 
 async function browseFiles(args, cwd) {

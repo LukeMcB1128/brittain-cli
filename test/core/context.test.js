@@ -25,6 +25,8 @@ const SUMMARY = [
   'STATE: data.txt was read; it is 12,000 characters of the letter a. The user then asked a follow-up question which was answered.',
   'NEXT: answer the next question using what is already known about data.txt without reading it again.',
   'Further detail: the file sits at the project root and nothing was modified. No commands were run and no errors occurred during the session.',
+  // Long enough for the one-line-per-file floor an in-turn record now has.
+  'data.txt: ' + Array.from({ length: 80 }, (_, i) => `observation${i}`).join(' '),
 ].join('\n');
 
 async function setup(t, { turns, cwd = project(), settings = {}, contextLength = 32_768 }) {
@@ -41,6 +43,8 @@ test('a long conversation crosses the threshold and is compacted before the next
   const { runtime, fake, seen } = await setup(t, {
     cwd,
     contextLength: 8192,
+    // The mechanism under test, pinned: the default moved from 0.7 to 0.8.
+    settings: { compactThreshold: 0.7 },
     turns: [
       { toolCalls: [{ name: 'read_file', arguments: { path: 'data.txt' } }] }, // chat 1
       { text: 'It is 12,000 letter a characters.' },

@@ -27,6 +27,11 @@ function preview(s) {
   return s.length > 400 ? s.slice(0, 400) + '…' : s;
 }
 
+// How many steps before the cap the model is told to start wrapping up.
+function wrapUpWarningSteps(maxAgentSteps) {
+  return Math.min(5, Math.max(1, Math.floor(maxAgentSteps / 5)));
+}
+
 function responseReserve(contextLength) {
   return Math.min(4096, Math.max(1024, Math.floor(contextLength * 0.125)));
 }
@@ -314,6 +319,16 @@ function createAgentLoop(rt) {
           content: `These tool calls have failed twice or were blocked after repeated failure: ${[...failureDirectives].join(', ')}. Do not repeat the same call. Use a different approach, or explain the blocker and ask one focused question.`,
         });
       }
+      // CLI addition: a model that keeps exploring used to run into the cap
+      // with nothing written. Say how much room is left before it runs out.
+      const remaining = maxAgentSteps - (step + 1);
+      if (remaining === wrapUpWarningSteps(maxAgentSteps)) {
+        conversation().push({
+          role: 'user',
+          meta: 'nudge',
+          content: `You have ${remaining} model ${remaining === 1 ? 'call' : 'calls'} left for this request. Stop exploring: use them only for what is essential, then write your answer.`,
+        });
+      }
       rt.state.emitPersistedConversationContext(model, contextLength);
       if (rt.run.stopRequested) break;
 
@@ -341,7 +356,37 @@ function createAgentLoop(rt) {
       }
     }
     if (exhaustedWithToolCalls && !rt.run.stopRequested) {
-      sink().info(`Agent stopped after reaching the ${maxAgentSteps}-step safety cap.`);
+      // CLI addition: the source stopped here, which left a long exploration
+      // with no answer at all. Ask once more with tools switched off, so the
+      // model has to answer from what it found.
+      sink().info(`Agent reached the ${maxAgentSteps}-step safety cap — asking for a final answer without tools.`);
+      conversation().push({
+        role: 'user',
+        meta: 'nudge',
+        content: `You have used all ${maxAgentSteps} steps for this request and cannot call any more tools. Answer the user's request now from what you have found. Say plainly what you did not get to check.`,
+      });
+      try {
+        const prepared = await fitRequest({ model, prompt, agentTools: [], contextLength });
+        const final = await rt.stream.streamChat(model, prepared.messages, signal, useThink, false, contextLength, null, { toolCallRetries: 0 }, temperature, prepared.maxTokens);
+        if (final.stats) {
+          rt.state.recordUsage('main', final.stats);
+          rt.state.publishContextStats(final.stats, contextLength);
+          turnTokens.promptTokens += final.stats.promptTokens || 0;
+          turnTokens.evalTokens += final.stats.evalTokens || 0;
+          lastStats = final.stats;
+        }
+        const finalMsg = { role: 'assistant', content: final.content };
+        if (final.thinking) finalMsg.thinking = final.thinking;
+        conversation().push(finalMsg);
+        await rt.chatJobs.persistActive();
+        if (final.content && final.content.trim()) {
+          sink().emit('stream:message', final.content.trim());
+          lastContent = final.content;
+        }
+      } catch (err) {
+        if (err.name === 'AbortError') throw err;
+        sink().info(`The final answer failed (${rt.providers.redact(err.message || String(err))}). Ask "what did you find?" to get a summary.`);
+      }
     }
     // What that message cost, reported once at the end of the turn. Only when
     // the provider is not local: a local model has no bill, and inventing a
