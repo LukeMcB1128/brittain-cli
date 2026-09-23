@@ -257,6 +257,7 @@ async function getFileLines(args, cwd) {
 
 async function browseFiles(args, cwd) {
   const root = resolveInside(cwd, args.path);
+  if (!fs.existsSync(root)) return missingPathError(cwd, args.path, root);
   if (!fs.statSync(root).isDirectory()) return `Error: ${args.path || root} is not a directory.`;
   const maxDepth = Math.min(Math.max(Math.round(Number(args.depth) || 1), 1), 8);
   const maxResults = Math.min(Math.max(Math.round(Number(args.max_results) || 200), 1), 500);
@@ -285,7 +286,9 @@ async function browseFiles(args, cwd) {
     return truncate(files.sort((a, b) => b.size - a.size).slice(0, maxResults)
       .map((file) => `${path.relative(cwd, file.path)}: ${file.size} bytes`).join('\n') || '(no files found)');
   }
-  const lines = [path.basename(root) + '/'];
+  // Label the root by its path from the working directory, never its bare
+  // name: a model shown `proj1/` at the top prefixed every later path with it.
+  const lines = [(path.relative(fs.realpathSync(cwd), fs.realpathSync(root)).split(path.sep).join('/') || '.') + '/'];
   let shownFiles = 0;
   const tree = (dir, prefix, depth) => {
     if (depth > maxDepth || shownFiles >= maxResults) return;

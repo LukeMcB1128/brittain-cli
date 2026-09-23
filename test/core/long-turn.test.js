@@ -99,7 +99,7 @@ test('one long turn on a 32k model compacts inside the turn and never overruns t
   }
 
   // The failure note really was in the conversation mid-turn.
-  assert.ok(agentRequests.some((body) => body.messages.some((m) => /failed twice or were blocked/.test(m.content))));
+  assert.ok(agentRequests.some((body) => body.messages.some((m) => /failed twice, or were blocked/.test(m.content))));
   // The request survived verbatim, with the summary of what came before it.
   const last = agentRequests.at(-1).messages;
   assert.ok(last.some((m) => m.role === 'user' && m.content === REQUEST));
@@ -210,4 +210,42 @@ test('the summarizer is asked for a line per file and sees more of each result',
   assert.match(summarizerBodies[1].messages.at(-1).content, /too thin to resume work from/);
   assert.equal(result.degraded, false);
   assert.ok(runtime.rt.session.conversation.some((m) => m.compactionRecord));
+});
+
+async function compactWith(t, summarizerTurn) {
+  const cwd = repo();
+  let reads = 0;
+  const fake = await createFakeProvider({
+    contextLength: 65_536,
+    respond: (body) => {
+      if (!body.tools) {
+        if (/Create a clear title/.test(String(body.messages?.[0]?.content))) return { text: 'T' };
+        return summarizerTurn;
+      }
+      if (reads < 4) return { toolCalls: [{ name: 'read_file', arguments: { path: `module${reads++}.js` } }] };
+      return { text: 'done' };
+    },
+  }).start();
+  t.after(() => fake.stop());
+  const runtime = createRuntime({ host: createTestHost({ settings: settingsFor('ollama', fake) }), overrides: { cwd } });
+  await runtime.commands.chat({ text: REQUEST, cwd });
+  return runtime.commands.compact();
+}
+
+test('a summary written only into the thinking trace is reported as such', async (t) => {
+  const result = await compactWith(t, { text: '', thinking: 'GOAL: report. '.repeat(100) });
+  assert.equal(result.degraded, true);
+  assert.match(result.description, /no usable summary \(empty, 1,400 chars of thinking\)/);
+});
+
+test('an unusable summary says why, and the rejected attempts are kept in the run ledger', async (t) => {
+  const result = await compactWith(t, { text: 'Read some modules.' });
+  assert.equal(result.ok, true, result.error);
+  assert.equal(result.degraded, true);
+  assert.match(result.description, /no usable summary \(too short, \d+ of [\d,]+ tokens\)/);
+  const stored = JSON.parse(fs.readFileSync(result.ledgerPath, 'utf8'));
+  const attempts = stored.snapshots.at(-1).rejectedSummaries;
+  assert.equal(attempts.length, 2);
+  assert.equal(attempts[0].text, 'Read some modules.');
+  assert.equal(attempts[0].reason, 'too short');
 });

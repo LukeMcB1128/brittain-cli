@@ -13,12 +13,38 @@ const { parseRawToolCalls } = require('./tool-call-parser');
 const { modelReadyMessages, estimateTokens } = require('./context-hygiene');
 const { unapprovedResult, isSensitiveToolCall } = require('./approvals');
 const { estimateContextTokens } = require('../lib/context-estimator');
-const { createToolFailureTracker } = require('../lib/tool-failure');
+const { callSignature, createToolFailureTracker } = require('../lib/tool-failure');
 const { boundToolResult, toolResultLimit } = require('../lib/tool-result');
 const { outcomeOf } = require('../lib/ledger');
 const { costOf, addTurn: addCostTurn, describeTurn: describeTurnCost, describeTotals: describeCostTotals } = require('../lib/cost');
 const { RISKY_TOOLS, DESTRUCTIVE_TOOLS, isDestructiveCommand } = require('../lib/tools');
 const { MISSING_QUESTIONS, answersResult, normalizeQuestions } = require('../lib/tools/interact');
+
+// CLI addition. The failure tracker only stops a call that keeps failing; a
+// model can also loop on calls that succeed — one session ran the same `open`
+// and the same `curl | grep` eight times each, pasting the same paragraph
+// between them. A call that already returned the same result twice this turn
+// is not run a third time. A successful edit resets it: after a change,
+// running the same check again is the point.
+const REPEAT_LIMIT = 2;
+function createRepeatTracker(limit = REPEAT_LIMIT) {
+  const seen = new Map();
+  return {
+    shouldBlock(name, args) {
+      return (seen.get(callSignature(name, args))?.count || 0) >= limit;
+    },
+    record(name, args, result) {
+      if (RISKY_TOOLS.has(name) && name !== 'run_command' && !/^\s*Error:/i.test(String(result || ''))) {
+        seen.clear();
+        return;
+      }
+      const signature = callSignature(name, args);
+      const last = seen.get(signature);
+      const text = String(result || '');
+      seen.set(signature, { result: text, count: last && last.result === text ? last.count + 1 : 1 });
+    },
+  };
+}
 
 const MAX_AGENT_STEPS = 50; // safety cap on tool-call loops per user message
 
@@ -97,7 +123,7 @@ function createAgentLoop(rt) {
 
   // Resolves one tool call and returns its result text. Every branch emits
   // exactly one stream:toolresult.
-  async function resolveCall({ name, args, cwd, autoApprove, activeToolNames, toolFailures, failureDirectives }) {
+  async function resolveCall({ name, args, cwd, autoApprove, activeToolNames, toolFailures, repeats, failureDirectives }) {
     const emit = (result, denied) => sink().emit('stream:toolresult', { name, result: preview(result), ...(denied ? { denied: true } : {}) });
     const approveThenRun = async (promptKind, deniedText, label) => {
       const decision = await rt.approvalFlow.resolveToolCall(name, args, { autoApprove, promptKind });
@@ -115,6 +141,12 @@ function createAgentLoop(rt) {
 
     if (toolFailures.shouldBlock(name, args)) {
       const result = `Error: This exact ${name || 'tool'} call already failed twice, so Brittain did not run it again. Use a different approach.`;
+      failureDirectives.add(name || 'tool');
+      emit(result, true);
+      return { result, repeatedCallBlocked: true };
+    }
+    if (repeats.shouldBlock(name, args)) {
+      const result = `Error: You already made this exact ${name || 'tool'} call twice in this turn and got the same result both times, so Brittain did not run it again. Use the result you already have. If you are stuck, try a different approach, or use ask_user to ask the user for what you cannot see yourself.`;
       failureDirectives.add(name || 'tool');
       emit(result, true);
       return { result, repeatedCallBlocked: true };
@@ -174,6 +206,7 @@ function createAgentLoop(rt) {
     // unit a person recognises as "what that question cost me".
     const turnTokens = { promptTokens: 0, evalTokens: 0 };
     const toolFailures = createToolFailureTracker(2);
+    const repeats = createRepeatTracker();
     let lastStats = null;
     let exhaustedWithToolCalls = false;
     let deniedCalls = 0;
@@ -290,7 +323,7 @@ function createAgentLoop(rt) {
 
         sink().toolCall({ name, args });
         const { result, repeatedCallBlocked } = await resolveCall({
-          name, args, cwd, autoApprove, activeToolNames, toolFailures, failureDirectives,
+          name, args, cwd, autoApprove, activeToolNames, toolFailures, repeats, failureDirectives,
         });
 
         // Match the denial sentences rather than a UI label, or every denial
@@ -301,6 +334,7 @@ function createAgentLoop(rt) {
         if (!repeatedCallBlocked) {
           const failure = toolFailures.record(name, args, result);
           if (failure.reachedLimit) failureDirectives.add(name || 'tool');
+          repeats.record(name, args, result);
         }
         const bounded = boundToolResult(result, { toolName: name || 'tool', maxChars: resultLimit });
         if (bounded.truncated) {
@@ -313,7 +347,7 @@ function createAgentLoop(rt) {
         conversation().push({
           role: 'user',
           meta: 'nudge',
-          content: `These tool calls have failed twice or were blocked after repeated failure: ${[...failureDirectives].join(', ')}. Do not repeat the same call. Use a different approach, or explain the blocker and ask one focused question.`,
+          content: `These tool calls have failed twice, or were blocked for repeating: ${[...failureDirectives].join(', ')}. Do not repeat the same call. Use a different approach, or explain the blocker and ask one focused question.`,
         });
       }
       // CLI addition: a model that keeps exploring used to run into the cap

@@ -202,18 +202,20 @@ function createRepl({
 
   async function approve(request) {
     const kind = request.kind || {};
-    const invariant = kind.destructive || kind.sensitive || kind.financial;
+    // The core says what "always" would cover; it offers nothing for an
+    // invariant or a command it cannot scope.
+    const always = request.always && !(kind.destructive || kind.sensitive || kind.financial) ? request.always : null;
     const flags = [
       kind.financial ? style.red('SPENDS MONEY') : '',
       kind.destructive ? style.red('DESTRUCTIVE') : '',
       kind.sensitive ? style.yellow('SENSITIVE READ') : '',
     ].filter(Boolean).join(' ');
-    const choices = invariant ? '[y]es / [n]o / [v]iew' : '[y]es / [n]o / [a]lways this session / [v]iew';
+    const choices = always ? `[y]es / [n]o / [a]lways ${always} / [v]iew` : '[y]es / [n]o / [v]iew';
     for (;;) {
       if (flags) renderer.line(flags);
       const answer = (await readAnswer(`Allow ${style.bold(request.name)} ${describeRequest(request)}? ${style.dim(choices)} `)).trim().toLowerCase();
       if (answer === 'y' || answer === 'yes') return true;
-      if (!invariant && (answer === 'a' || answer === 'always')) return 'always';
+      if (always && (answer === 'a' || answer === 'always')) return 'always';
       if (answer === 'v' || answer === 'view') {
         renderer.line(style.dim(JSON.stringify(request.args, null, 2)));
         continue;

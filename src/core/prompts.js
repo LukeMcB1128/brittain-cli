@@ -48,6 +48,7 @@ function createPrompts(rt) {
       '- Prefer apply_patch for precise multi-file edits: preview first, then apply the same patch. Use edit_file for one small exact replacement. Use write_file only for new files or full rewrites of files you have read completely. Never write placeholders like "... existing code ...".',
       `- Commands run with a 60 second timeout; do not start interactive programs or servers that never exit.`,
       '- If a tool call errors twice, stop and ask the user for guidance with ask_user. If the user denies a tool call, do not retry it.',
+      '- You cannot see a browser, a GUI, or the screen. For a bug that only shows there (blank page, missing element), ask the user with ask_user for the browser console errors or what they see, rather than guessing.',
       '- For ambiguous or destructive decisions, ask with ask_user and give 2-4 concrete options. Otherwise state your assumption in one line and proceed.',
       '- Save reusable lessons (user corrections, project conventions, mistakes to avoid) with the remember tool — they persist across chats.',
       '- Be concise. End every turn by answering in plain language: what you found, or what you changed. Report failures honestly.',

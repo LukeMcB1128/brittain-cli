@@ -373,3 +373,17 @@ test('a missing file names what is actually there instead of a bare ENOENT', asy
   // Containment still comes first.
   await assert.rejects(executeTool('read_file', { path: '../../etc/hosts' }, cwd), /Path escapes/);
 });
+
+test('browse_files labels the root by its path from the working directory, not its name', async (t) => {
+  const cwd = tempProject();
+  t.after(() => fs.rmSync(cwd, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(cwd, 'src', 'components'), { recursive: true });
+  fs.writeFileSync(path.join(cwd, 'src', 'App.js'), 'x');
+
+  const top = await executeTool('browse_files', { path: '.', depth: 2 }, cwd);
+  assert.equal(top.split('\n')[0], './');
+  assert.equal(top.includes(path.basename(cwd)), false);
+  assert.equal((await executeTool('browse_files', { path: 'src' }, cwd)).split('\n')[0], 'src/');
+  // A guessed directory gets the same listing a guessed file does.
+  assert.match(await executeTool('browse_files', { path: 'proj1/src' }, cwd), /^Error: No such file: proj1\/src\. \.\/ contains: src\/\./);
+});

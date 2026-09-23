@@ -97,6 +97,34 @@ test('"always" covers ordinary risky calls but never an invariant', async (t) =>
   assert.equal(host.asked.approvals[1].kind.destructive, true);
 });
 
+test('"always" on a command covers that program only, never the whole tool', async (t) => {
+  const { host } = await run(t, {
+    turns: [
+      call('run_command', { command: 'ls -la' }),
+      call('run_command', { command: 'ls src' }),
+      call('run_command', { command: 'kill 26035' }),
+      call('run_command', { command: 'ls && npm start' }),
+      done,
+    ],
+    approvals: ['always', false, false],
+  });
+  assert.deepEqual(host.asked.approvals.map((request) => request.target), ['ls -la', 'kill 26035', 'ls && npm start']);
+  assert.equal(host.asked.approvals[0].always, 'ls this session');
+  assert.equal(host.asked.approvals[2].always, 'ls, npm this session');
+});
+
+test('"always" is not offered for a command it cannot scope', () => {
+  const { alwaysScope, commandPrograms } = require('../../src/core/approvals');
+  assert.deepEqual(commandPrograms('curl -s http://localhost:3000 | head -20'), ['curl', 'head']);
+  assert.deepEqual(commandPrograms('NODE_ENV=test npm test 2>&1'), ['npm']);
+  assert.deepEqual(commandPrograms('./node_modules/.bin/jest'), ['jest']);
+  for (const command of ['echo $(whoami)', 'echo `id`', 'ls > out.txt', 'cat < in', '(cd x && make)', 'grep "a\\|b" f']) {
+    assert.equal(commandPrograms(command), null, command);
+  }
+  assert.equal(alwaysScope('run_command', { command: 'echo $(id)' }), null);
+  assert.deepEqual(alwaysScope('edit_file', { path: 'a' }), { keys: ['edit_file'], label: 'this session' });
+});
+
 test('a denied call is not run, and asking again for it is refused without a prompt', async (t) => {
   const write = call('write_file', { path: 'denied.txt', content: 'x' });
   const { host, cwd, runtime } = await run(t, { turns: [write, write, done], approvals: [false, true] });
@@ -113,7 +141,28 @@ test('a call that fails twice is blocked the third time and the model is told wh
   const results = toolMessages(runtime).map((message) => message.content);
   assert.match(results[0], /^Error:/);
   assert.match(results[2], /already failed twice/);
-  assert.ok(runtime.rt.session.conversation.some((m) => m.role === 'user' && /failed twice or were blocked/.test(m.content)));
+  assert.ok(runtime.rt.session.conversation.some((m) => m.role === 'user' && /failed twice, or were blocked/.test(m.content)));
+});
+
+test('a call that returned the same result twice is not run a third time, until an edit', async (t) => {
+  const look = call('run_command', { command: 'cat README.md' });
+  const { runtime, host } = await run(t, {
+    turns: [look, look, look, call('write_file', { path: 'README.md', content: 'changed\n' }), look, done],
+    autoApprove: true,
+  });
+  const results = toolMessages(runtime).map((message) => message.content);
+  assert.equal(results[0], results[1]);
+  assert.match(results[2], /already made this exact run_command call twice/);
+  assert.match(results[4], /changed/, 'the edit reset the guard');
+  assert.equal(host.asked.approvals.length, 0);
+  assert.ok(runtime.rt.session.conversation.some((m) => m.meta === 'nudge' && /blocked for repeating: run_command/.test(m.content)));
+});
+
+test('the same call with a different result is not a repeat', async (t) => {
+  const cwd = project();
+  const tick = call('run_command', { command: 'date +%s%N >> ticks && wc -l < ticks' });
+  const { runtime } = await run(t, { cwd, turns: [tick, tick, tick, done], autoApprove: true });
+  for (const message of toolMessages(runtime)) assert.doesNotMatch(message.content, /already made this exact/);
 });
 
 test('tool results are bounded before they reach the model', async (t) => {

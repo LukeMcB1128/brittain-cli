@@ -309,7 +309,7 @@ function describeCompaction(result) {
   if (!result || !result.ok) return '';
   const parts = [`${formatCount(result.before)} \u2192 ${formatCount(result.after)} tokens`];
   parts.push(result.degraded
-    ? 'no usable summary \u2014 recent turns only'
+    ? `no usable summary${result.rejectedReason ? ` (${result.rejectedReason})` : ''} \u2014 recent turns only`
     : `summary ${formatCount(result.summaryTokens)} tok${result.unstructured ? ' (unstructured)' : ''}`);
   const entries = Math.max(0, Math.round(Number(result.ledgerEntries) || 0));
   if (entries) parts.push(`${entries} ledger ${entries === 1 ? 'entry' : 'entries'}`);
