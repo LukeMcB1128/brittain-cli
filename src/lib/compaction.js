@@ -75,6 +75,61 @@ function selectVerbatimTail(messages, budgetTokens, estimateTokens = estimateTok
   return best || nothing;
 }
 
+// CLI addition. The tail above can only begin at a user message, so a single
+// turn larger than the budget — one request that read file after file — left
+// nothing it was allowed to keep, and compaction refused outright. On a 32k
+// model that is an ordinary turn, not an edge case.
+//
+// So within the current turn, keep the request that opened it plus the newest
+// complete steps. A step begins at an assistant message and carries the tool
+// results that answer it, so a result is never separated from its call. The
+// request is kept whole: it is the goal, and losing it is how a session comes
+// back saying it cannot see an active task.
+//
+// A request is a user message written by the person, not one the loop wrote
+// (nudges) or compaction left behind.
+function isRequest(message) {
+  return message?.role === 'user' && message.meta !== 'nudge' && message.meta !== 'compaction';
+}
+
+function selectTurnTail(messages, budgetTokens, estimateTokens = estimateTokensDefault) {
+  const list = Array.isArray(messages) ? messages : [];
+  const nothing = { tail: [], head: list.slice(), summarize: list.slice(), turns: 0, steps: 0, tokens: 0, inTurn: true };
+  if (!list.length || !(budgetTokens > 0)) return nothing;
+  let requestIndex = -1;
+  for (let i = list.length - 1; i >= 0; i--) {
+    if (isRequest(list[i])) { requestIndex = i; break; }
+  }
+  if (requestIndex < 0) return nothing;
+  const request = list[requestIndex];
+  const requestTokens = estimateTokens([request]);
+  if (requestTokens > budgetTokens) return nothing;
+
+  // Newest steps first; candidates grow as the index falls, so the first one
+  // over budget means every earlier one is too.
+  let cut = list.length;
+  for (let i = list.length - 1; i > requestIndex; i--) {
+    if (list[i]?.role !== 'assistant') continue;
+    if (requestTokens + estimateTokens(list.slice(i)) > budgetTokens) break;
+    cut = i;
+  }
+  const steps = list.slice(cut);
+  const head = [...list.slice(0, requestIndex), ...list.slice(requestIndex + 1, cut)];
+  // Nothing left to summarize means compaction would accomplish nothing.
+  if (!head.length) return nothing;
+  return {
+    tail: [request, ...steps],
+    head,
+    // The summarizer sees the request too, in place: it is what the earlier
+    // steps were for.
+    summarize: list.slice(0, cut),
+    turns: 1,
+    steps: steps.filter((message) => message.role === 'assistant').length,
+    tokens: requestTokens + estimateTokens(steps),
+    inTurn: true,
+  };
+}
+
 // The failure this guards against is a 130k conversation coming back as two
 // sentences. The floor tracks the source so genuinely short conversations are
 // still allowed to summarize short.
@@ -128,8 +183,10 @@ function validateSummary(summary, { sourceTokens = 0, estimateTokens = estimateT
 }
 
 // The instruction that asks for a record rather than a paragraph.
-function summaryInstruction({ tailTurns = 0, minimumTokens = 0 } = {}) {
-  const scope = tailTurns
+function summaryInstruction({ tailTurns = 0, minimumTokens = 0, inTurnSteps } = {}) {
+  const scope = inTurnSteps !== undefined
+    ? `Summarize the conversation above so work can continue in a fresh session. The user's current request${inTurnSteps ? ` and its ${inTurnSteps} most recent ${inTurnSteps === 1 ? 'step is' : 'steps are'}` : ' is'} being kept word for word. Carry forward everything else — including what the earlier steps of the current request found, file by file — since those steps will not be shown again.`
+    : tailTurns
     ? `Summarize the conversation above so work can continue in a fresh session. The ${tailTurns} most recent ${tailTurns === 1 ? 'turn is' : 'turns are'} being kept word for word and are not shown to you, so do not try to cover them — carry forward everything earlier that they would not reveal on their own.`
     : 'Summarize this entire conversation so work can continue seamlessly in a fresh session.';
   return [
@@ -253,7 +310,10 @@ function describeCompaction(result) {
   if (chunks > 1) parts.push(`summarized in ${chunks} parts`);
   if (result.carriedPriorRecord) parts.push('carried prior record');
   const turns = Math.max(0, Math.round(Number(result.tailTurns) || 0));
-  parts.push(`${turns} recent ${turns === 1 ? 'turn' : 'turns'} kept verbatim`);
+  const steps = Math.max(0, Math.round(Number(result.tailSteps) || 0));
+  parts.push(result.inTurn
+    ? `current request${steps ? ` and ${steps} recent ${steps === 1 ? 'step' : 'steps'}` : ''} kept verbatim`
+    : `${turns} recent ${turns === 1 ? 'turn' : 'turns'} kept verbatim`);
   const retries = Math.max(0, Math.round(Number(result.retries) || 0));
   if (retries) parts.push(`${retries} ${retries === 1 ? 'retry' : 'retries'}`);
   return parts.join(' \u00b7 ');
@@ -265,6 +325,7 @@ module.exports = {
   tailBudget,
   summaryBudget,
   selectVerbatimTail,
+  selectTurnTail,
   countTurns,
   minimumSummaryTokens,
   validateSummary,

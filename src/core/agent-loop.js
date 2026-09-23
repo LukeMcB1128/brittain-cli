@@ -14,7 +14,7 @@ const { modelReadyMessages, estimateTokens } = require('./context-hygiene');
 const { unapprovedResult, isSensitiveToolCall } = require('./approvals');
 const { estimateContextTokens } = require('../lib/context-estimator');
 const { createToolFailureTracker } = require('../lib/tool-failure');
-const { boundToolResult } = require('../lib/tool-result');
+const { boundToolResult, toolResultLimit } = require('../lib/tool-result');
 const { outcomeOf } = require('../lib/ledger');
 const { costOf, addTurn: addCostTurn, describeTurn: describeTurnCost, describeTotals: describeCostTotals } = require('../lib/cost');
 const { RISKY_TOOLS, DESTRUCTIVE_TOOLS, isDestructiveCommand } = require('../lib/tools');
@@ -66,6 +66,28 @@ function createAgentLoop(rt) {
       estimatedTokens: estimateContextTokens(messages) + estimateTokens(agentTools || []),
       hardInput,
     };
+  }
+
+  // CLI addition: never send a request the model cannot take. The source
+  // computed hardInput and left it to Jev; without Jev an oversized request
+  // went out and came back as a provider 400 mid-turn. Compact once, then
+  // refuse with a message that says what to do.
+  async function fitRequest({ model, prompt, agentTools, contextLength }) {
+    let prepared = prepareAgentMessages({ prompt, agentTools, contextLength });
+    if (prepared.estimatedTokens <= prepared.hardInput) return prepared;
+    const n = (value) => Number(value || 0).toLocaleString();
+    sink().info(`The next request is about ${n(prepared.estimatedTokens)} tokens, more than the ${n(prepared.hardInput)} this model can take — compacting first…`);
+    sink().state('compacting');
+    const c = await rt.compaction.compactConversation(model);
+    if (c.ok) {
+      sink().emit('stream:stats', { contextTokens: c.approxTokens, contextLength: c.contextLength, tokPerSec: 0, scope: 'conversation' });
+      sink().info(`Compacted: ${c.description}`);
+    }
+    prepared = prepareAgentMessages({ prompt, agentTools, contextLength });
+    if (prepared.estimatedTokens <= prepared.hardInput) return prepared;
+    throw new Error(`This request is about ${n(prepared.estimatedTokens)} tokens and the model's ${n(contextLength)}-token window leaves room for ${n(prepared.hardInput)}. `
+      + (c.ok ? 'Compacting did not free enough room. ' : `Compaction failed: ${c.error} `)
+      + 'Start a new chat with /clear, or switch to a model with a larger window.');
   }
 
   // Resolves one tool call and returns its result text. Every branch emits
@@ -158,11 +180,13 @@ function createAgentLoop(rt) {
     const temperature = chatMode ? settings.chatTemperature : settings.codeTemperature;
     rt.approvalFlow.beginTurn();
 
+    const resultLimit = toolResultLimit(contextLength);
+
     let psychosisRetried = false;
     for (let step = 0; step < maxAgentSteps; step++) {
       let content, thinking, toolCalls, stats;
       try {
-        const prepared = prepareAgentMessages({ prompt, agentTools, contextLength });
+        const prepared = await fitRequest({ model, prompt, agentTools, contextLength });
         ({ content, thinking, toolCalls, stats } = await rt.stream.streamChat(model, prepared.messages, signal, useThink, false, contextLength, agentTools, { toolCallRetries: 0 }, temperature, prepared.maxTokens));
       } catch (err) {
         if (err.name !== 'PsychosisDetectedError') throw err;
@@ -276,7 +300,7 @@ function createAgentLoop(rt) {
           const failure = toolFailures.record(name, args, result);
           if (failure.reachedLimit) failureDirectives.add(name || 'tool');
         }
-        const bounded = boundToolResult(result, { toolName: name || 'tool' });
+        const bounded = boundToolResult(result, { toolName: name || 'tool', maxChars: resultLimit });
         if (bounded.truncated) {
           sink().info(`Tool result from "${name}" was ${bounded.originalChars.toLocaleString()} characters. Kept a ${bounded.content.length.toLocaleString()}-character excerpt in model context.`);
         }

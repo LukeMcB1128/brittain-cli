@@ -45,7 +45,7 @@ test('a long conversation crosses the threshold and is compacted before the next
       { toolCalls: [{ name: 'read_file', arguments: { path: 'data.txt' } }] }, // chat 1
       { text: 'It is 12,000 letter a characters.' },
       { text: 'Data file' },                                                   // title
-      { text: Array.from({ length: 400 }, (_, i) => `item${i}`).join(' ') },  // chat 2: long, not repetitive
+      { text: Array.from({ length: 1400 }, (_, i) => `item${i}`).join(' ') }, // chat 2: long, not repetitive
       { text: SUMMARY },                                                       // compaction
       { text: 'Still just the letter a.' },                                    // chat 3
     ],

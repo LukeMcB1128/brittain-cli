@@ -32,4 +32,17 @@ function boundToolResult(value, { maxChars = MAX_TOOL_RESULT_CHARS, toolName = '
   };
 }
 
-module.exports = { MAX_TOOL_RESULT_CHARS, boundToolResult };
+// CLI addition. Every tool result is re-sent with each later request in the
+// turn, so on a small window one result can crowd out the rest: at 32,000
+// characters, a single file read was a quarter of a 32k model's window. Allow
+// about an eighth of the window instead, never more than the fixed ceiling and
+// never less than 4,000 characters.
+const MIN_TOOL_RESULT_CHARS = 4_000;
+
+function toolResultLimit(contextLength) {
+  const tokens = Number(contextLength) || 0;
+  if (tokens <= 0) return MAX_TOOL_RESULT_CHARS;
+  return Math.max(MIN_TOOL_RESULT_CHARS, Math.min(MAX_TOOL_RESULT_CHARS, Math.floor(tokens / 8) * 4));
+}
+
+module.exports = { MAX_TOOL_RESULT_CHARS, MIN_TOOL_RESULT_CHARS, boundToolResult, toolResultLimit };

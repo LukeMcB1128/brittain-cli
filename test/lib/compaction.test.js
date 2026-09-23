@@ -330,3 +330,73 @@ test('a single-pass compaction says nothing about parts', () => {
   assert.doesNotMatch(line, /parts/);
   assert.doesNotMatch(line, /prior record/);
 });
+
+// ---------- CLI additions: compaction inside one long turn ----------
+
+const { selectTurnTail, estimateTokensDefault } = require('../../src/lib/compaction');
+const { toolResultLimit, MAX_TOOL_RESULT_CHARS } = require('../../src/lib/tool-result');
+
+function longTurn(steps, size = 400) {
+  const messages = [
+    { role: 'user', content: 'hello' },
+    { role: 'assistant', content: 'hi' },
+    { role: 'user', content: 'report on the repo' },
+  ];
+  for (let i = 0; i < steps; i++) {
+    messages.push({ role: 'assistant', content: '', tool_calls: [{ function: { name: 'read_file', arguments: { path: `f${i}` } } }] });
+    messages.push({ role: 'tool', tool_name: 'read_file', content: `f${i}:` + 'x'.repeat(size) });
+  }
+  return messages;
+}
+
+test('one turn larger than the budget keeps its request and newest whole steps', () => {
+  const messages = longTurn(6);
+  const oneStep = estimateTokensDefault(messages.slice(-2));
+  const result = selectTurnTail(messages, estimateTokensDefault([messages[2]]) + oneStep * 2 + 5);
+  assert.equal(result.inTurn, true);
+  assert.equal(result.tail[0].content, 'report on the repo');
+  assert.equal(result.steps, 2);
+  assert.deepEqual(result.tail.slice(1).map((m) => m.role), ['assistant', 'tool', 'assistant', 'tool']);
+  assert.match(result.tail.at(-1).content, /^f5:/);
+  // The request is kept, not summarized away; the summarizer still sees it.
+  assert.equal(result.head.includes(messages[2]), false);
+  assert.ok(result.summarize.includes(messages[2]));
+  assert.equal(result.summarize.length + result.tail.length - 1, messages.length);
+});
+
+test('a step is never split from its tool results', () => {
+  const messages = longTurn(4);
+  for (let budget = 10; budget < 2000; budget += 37) {
+    const { tail } = selectTurnTail(messages, budget);
+    if (tail.length > 1) assert.equal(tail[1].role, 'assistant', `budget ${budget}`);
+  }
+});
+
+test('with no step small enough, only the request is kept; nudges are not requests', () => {
+  const messages = longTurn(2, 5000);
+  messages.push({ role: 'user', meta: 'nudge', content: 'keep going' });
+  const result = selectTurnTail(messages, estimateTokensDefault([messages[2]]) + 10);
+  assert.deepEqual(result.tail, [messages[2]]);
+  assert.equal(result.steps, 0);
+});
+
+test('nothing to summarize means no in-turn tail', () => {
+  const messages = [{ role: 'user', content: 'only' }, { role: 'assistant', content: 'x'.repeat(50) }];
+  // The whole turn fits, so nothing would be left to summarize.
+  assert.deepEqual(selectTurnTail(messages, 10_000).tail, []);
+  assert.deepEqual(selectTurnTail([{ role: 'user', content: 'only' }], 10_000).tail, []);
+});
+
+test('an in-turn compaction is described by what it kept', () => {
+  assert.match(describeCompaction({ ok: true, before: 30000, after: 9000, summaryTokens: 400, inTurn: true, tailSteps: 2 }),
+    /current request and 2 recent steps kept verbatim$/);
+  assert.match(summaryInstruction({ inTurnSteps: 1 }), /current request and its 1 most recent step is being kept word for word/);
+});
+
+test('tool results are capped at about an eighth of the window', () => {
+  assert.equal(toolResultLimit(32_768), 16_384);
+  assert.equal(toolResultLimit(8192), 4096);
+  assert.equal(toolResultLimit(2048), 4000, 'never below the floor');
+  assert.equal(toolResultLimit(262_144), MAX_TOOL_RESULT_CHARS, 'never above the ceiling');
+  assert.equal(toolResultLimit(0), MAX_TOOL_RESULT_CHARS, 'unknown window: the old cap');
+});

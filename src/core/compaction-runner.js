@@ -6,6 +6,12 @@
 // Pruned: the Jev branch, image-aware measurement (there are no images), and
 // the project-check count in the ledger total (run_project_check is not in
 // v1).
+//
+// Added: when the current turn alone is larger than the tail budget, the tail
+// is taken inside it — the request plus its newest complete steps (see
+// selectTurnTail in lib/compaction.js). In the app, Jev pruned tool results
+// within a turn for Brittain 4; without it, one long turn on a 32k model left
+// compaction nothing it was allowed to keep.
 
 const { estimateContextTokens } = require('../lib/context-estimator');
 const { pinnedMessagesPrompt } = require('../lib/context-controls');
@@ -15,6 +21,7 @@ const {
   tailBudget,
   summaryBudget,
   selectVerbatimTail,
+  selectTurnTail,
   minimumSummaryTokens,
   validateSummary,
   retryInstruction,
@@ -51,15 +58,22 @@ function createCompactionRunner(rt) {
       // Keep the most recent complete turns verbatim. They are the most
       // relevant part of the conversation and the cheapest fidelity
       // available, and the summarizer is then only responsible for what came
-      // before them.
-      const { tail, head, turns: tailTurns, tokens: tailTokens } =
-        selectVerbatimTail(unpinnedConversation, tailBudget(contextLength), sendableTokens);
+      // before them. When not even the current turn fits, keep its request
+      // and newest steps instead.
+      const chooseTail = (budget) => {
+        const turns = selectVerbatimTail(unpinnedConversation, budget, sendableTokens);
+        if (turns.tail.length) return { ...turns, summarize: turns.head, steps: 0, inTurn: false };
+        const inTurn = selectTurnTail(unpinnedConversation, budget, sendableTokens);
+        return inTurn.tail.length ? inTurn : { ...turns, summarize: turns.head, steps: 0, inTurn: false };
+      };
+      const chosen = chooseTail(tailBudget(contextLength));
+      const { tail, head, turns: tailTurns, tokens: tailTokens } = chosen;
 
       // Facts established by an earlier compaction of this same session.
       // Carrying them forward explicitly is what stops the record thinning a
       // little on every pass.
-      const priorRecord = [...head].reverse().find((message) => message?.compactionRecord)?.content || '';
-      const transcript = head.filter((message) => !message?.compactionRecord);
+      const priorRecord = [...chosen.summarize].reverse().find((message) => message?.compactionRecord)?.content || '';
+      const transcript = chosen.summarize.filter((message) => !message?.compactionRecord);
 
       // drop bulky tool outputs from what the summarizer sees — the summarizer
       // must not context-shift itself
@@ -132,6 +146,7 @@ function createCompactionRunner(rt) {
             content: summaryInstruction({
               tailTurns: tail.length ? tailTurns : 0,
               minimumTokens,
+              ...(chosen.inTurn ? { inTurnSteps: chosen.steps } : {}),
             }),
           },
         ];
@@ -169,7 +184,7 @@ function createCompactionRunner(rt) {
       // compacting into a record that has lost the session.
       const degraded = !check.ok;
       const fallback = degraded
-        ? selectVerbatimTail(unpinnedConversation, Math.max(1200, retainedBudget(contextLength) - pinnedCost), sendableTokens)
+        ? chooseTail(Math.max(1200, retainedBudget(contextLength) - pinnedCost))
         : null;
       if (degraded && !fallback.tail.length) {
         return {
@@ -182,13 +197,9 @@ function createCompactionRunner(rt) {
       // covers what came BEFORE the recent turns, so a tail of zero discards
       // the request currently being worked on. Widen once, then decline
       // rather than destroy the conversation.
-      let intact = degraded ? fallback.tail : tail;
-      if (!degraded && !intact.length) {
-        const wider = selectVerbatimTail(
-          unpinnedConversation,
-          Math.max(1200, retainedBudget(contextLength) - pinnedCost),
-          sendableTokens,
-        );
+      let kept = degraded ? fallback : chosen;
+      if (!degraded && !kept.tail.length) {
+        const wider = chooseTail(Math.max(1200, retainedBudget(contextLength) - pinnedCost));
         if (!wider.tail.length) {
           return {
             ok: false,
@@ -196,15 +207,17 @@ function createCompactionRunner(rt) {
               + 'The conversation was left unchanged — start a new chat with /clear.',
           };
         }
-        intact = wider.tail;
+        kept = wider;
       }
 
-      const keptTail = intact;
+      const keptTail = kept.tail;
       rt.session.usage.metrics.compactions += 1;
 
       const notice = degraded
         ? 'Compaction could not produce a usable summary, so the earlier conversation was dropped and only the most recent turns below were kept. Re-read anything you need from earlier work rather than assuming it.'
-        : 'This conversation was compacted to save context. Continue from the summary below; the most recent turns that follow it are intact.';
+        : kept.inTurn
+          ? 'This conversation was compacted to save context, partway through the current request. Continue from the summary below: the request itself and its most recent steps follow it intact, and the summary records what the earlier steps found. Do not redo work the summary says is done.'
+          : 'This conversation was compacted to save context. Continue from the summary below; the most recent turns that follow it are intact.';
 
       rt.session.conversation = [
         ...pinnedConversation,
@@ -245,8 +258,10 @@ function createCompactionRunner(rt) {
         before,
         after: approxTokens,
         summaryTokens: degraded ? 0 : check.tokens,
-        tailTurns: degraded ? fallback.turns : tailTurns,
-        tailTokens: degraded ? fallback.tokens : tailTokens,
+        tailTurns: kept.turns,
+        tailTokens: kept.tokens,
+        tailSteps: kept.steps,
+        inTurn: !!kept.inTurn,
         retries,
         degraded,
         unstructured: !degraded && !check.structured,
