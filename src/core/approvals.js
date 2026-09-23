@@ -15,6 +15,8 @@
 // Added for the CLI:
 //   - "always this session" for an ordinary risky tool. It never reaches an
 //     invariant: a destructive, sensitive, or financial call asks every time.
+//     For run_command it covers the program, not the tool: "always" on
+//     `ls -la` allows `ls`, never `kill` or `npm start`.
 //   - an identical call the person already denied in this turn is refused
 //     without asking again, so a model that ignores "do not retry" cannot turn
 //     one refusal into a stream of prompts.
@@ -85,6 +87,31 @@ function describeCallTarget(name, args) {
   return String(args?.path || args?.destination || '').slice(0, 120);
 }
 
+// The programs a command runs, one per segment (`a && b | c` → a, b, c), or
+// null when "always" cannot safely cover it: a command substitution, a
+// subshell, or a redirect into a file could do anything under a harmless name.
+const SHELL_SEPARATORS = /&&|\|\||[;|&\n]/;
+function commandPrograms(command) {
+  const text = String(command || '').replace(/\d?>&\d|\d?>\s*\/dev\/null/g, ' ');
+  if (!text.trim() || /\$\(|`|[<>]\(|[<>]|[(){}]/.test(text)) return null;
+  const programs = [];
+  for (const segment of text.split(SHELL_SEPARATORS)) {
+    const words = segment.trim().split(/\s+/).filter((word) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(word));
+    if (!words.length || !words[0]) continue;
+    if (!/^[\w./@+-]+$/.test(words[0])) return null;
+    programs.push(path.basename(words[0]));
+  }
+  return programs.length ? [...new Set(programs)] : null;
+}
+
+// What "always" would remember for this call, or null when it is not offered.
+function alwaysScope(name, args) {
+  if (name !== 'run_command') return { keys: [name], label: 'this session' };
+  const programs = commandPrograms(args?.command);
+  if (!programs) return null;
+  return { keys: programs.map((program) => `run_command:${program}`), label: `${programs.join(', ')} this session` };
+}
+
 // The tool result the model sees for a call that was not approved. A denial
 // keeps the branch's own wording so the model knows what kind of thing was
 // refused; a call refused because nobody was there to ask says so.
@@ -147,7 +174,8 @@ function createApprovals(rt) {
     }
 
     // decision.verdict === 'ask'
-    if (!invariant && rt.approvals.always.has(name)) {
+    const scope = invariant ? null : alwaysScope(name, args);
+    if (scope && scope.keys.every((key) => rt.approvals.always.has(key))) {
       return { approved: true, verdict: 'allow', reason: 'approved for this session', policyId: id };
     }
     const signature = callSignature(name, args);
@@ -162,8 +190,8 @@ function createApprovals(rt) {
       ...(call.sensitive ? { sensitive: true } : {}),
       ...(call.financial ? { financial: true } : {}),
     };
-    const answer = await requestApproval({ name, args, target: describeCallTarget(name, args), reason: decision.reason, kind });
-    if (answer === 'always' && !invariant) rt.approvals.always.add(name);
+    const answer = await requestApproval({ name, args, target: describeCallTarget(name, args), reason: decision.reason, kind, always: scope ? scope.label : null });
+    if (answer === 'always' && scope) for (const key of scope.keys) rt.approvals.always.add(key);
     const approved = answer === 'always' || answer === true;
     if (!approved) rt.approvals.deniedThisTurn.add(signature);
     return { approved, ...decision, policyId: id };
@@ -184,7 +212,9 @@ function createApprovals(rt) {
 
 module.exports = {
   FINANCIAL_PATTERNS,
+  alwaysScope,
   classifyToolCall,
+  commandPrograms,
   createApprovals,
   describeCallTarget,
   isSensitivePath,

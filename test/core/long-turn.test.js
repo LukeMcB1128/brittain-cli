@@ -99,7 +99,7 @@ test('one long turn on a 32k model compacts inside the turn and never overruns t
   }
 
   // The failure note really was in the conversation mid-turn.
-  assert.ok(agentRequests.some((body) => body.messages.some((m) => /failed twice or were blocked/.test(m.content))));
+  assert.ok(agentRequests.some((body) => body.messages.some((m) => /failed twice, or were blocked/.test(m.content))));
   // The request survived verbatim, with the summary of what came before it.
   const last = agentRequests.at(-1).messages;
   assert.ok(last.some((m) => m.role === 'user' && m.content === REQUEST));

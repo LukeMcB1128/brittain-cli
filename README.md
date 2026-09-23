@@ -97,8 +97,12 @@ When the agent wants to change something it asks first:
 Allow write_file src/app.js? [y]es / [n]o / [a]lways this session / [v]iew
 ```
 
-`[a]lways` covers ordinary edits and commands for the rest of the session. It
-is not offered for destructive commands, sensitive reads or payments.
+`[a]lways` allows that kind of call for the rest of the session. For a
+command it covers the program only: `[a]lways` on `ls -la` allows `ls`, not
+`npm` or `kill`, and the prompt names what it covers
+(`[a]lways npm this session`). It is not offered for destructive commands,
+sensitive reads, payments, or a command with `$(…)`, backticks or a redirect
+into a file.
 
 `brittain --continue` picks up the latest chat started in this directory, and
 `brittain --resume` offers a list. Chats save as you go and get a generated

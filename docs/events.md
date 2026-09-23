@@ -42,7 +42,7 @@ Every event carries `meta`:
 | `stream:cost` | `{ text, cost, promptTokens, evalTokens, sessionText }` | Once per turn, only when the provider is not local. `cost` is `null` when the provider publishes no rates — unknown, not free. |
 | `stream:done` | `{ ok, error?, stopped?, stats? }` | The run finished. Always the last event of a run. |
 | `question:request` | `{ id, questions: [{ question, options }] }` | `ask_user` is waiting. The host's `ask()` answers it. |
-| `approval:request` | `{ id, name, args, target, reason, kind }` | A tool call was put to a human. `kind` is `{ destructive?, sensitive?, financial? }`. The host's `approve()` answers it. |
+| `approval:request` | `{ id, name, args, target, reason, kind, always }` | A tool call was put to a human. `kind` is `{ destructive?, sensitive?, financial? }`. `always` names what answering `'always'` would allow for the rest of the session (`"this session"`, or the programs of a command, such as `"npm this session"`), and is `null` when it is not offered. The host's `approve()` answers it. |
 | `approval:resolved` | `{ id, approved }` | The answer to an `approval:request`. |
 | `provider:changed` | `{ mode, model }` | The active provider or model changed. Never carries the Brittain endpoint. |
 
