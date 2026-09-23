@@ -93,6 +93,7 @@ function createStream(rt) {
     let stats = null;
     const repetitionState = { value: 0 };
     const thinkingState = { value: 0 };
+    const thinkingScan = { model, provider: provider.mode, contextLength: numCtx };
 
     // A reply already sitting in the buffer would otherwise be parsed to the
     // end after a stop; checking between lines stops within one chunk.
@@ -111,7 +112,7 @@ function createStream(rt) {
         if (delta.error) throw new Error(rt.providers.redact(delta.error));
         if (delta.thinking) {
           thinking += delta.thinking;
-          const thinkHit = scanThinkingForPsychosis(thinking, thinkingState, model);
+          const thinkHit = scanThinkingForPsychosis(thinking, thinkingState, thinkingScan);
           if (thinkHit) {
             try { await reader.cancel(); } catch {}
             throw new PsychosisDetectedError(thinkHit.reason, thinkHit.excerpt, thinkHit.recovery);

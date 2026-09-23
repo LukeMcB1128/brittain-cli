@@ -233,9 +233,10 @@ async function compactWith(t, summarizerTurn) {
 }
 
 test('a summary written only into the thinking trace is reported as such', async (t) => {
-  const result = await compactWith(t, { text: '', thinking: 'GOAL: report. '.repeat(100) });
+  const thinking = Array.from({ length: 200 }, (_, n) => `t${String(n).padStart(3, '0')} `).join('');
+  const result = await compactWith(t, { text: '', thinking });
   assert.equal(result.degraded, true);
-  assert.match(result.description, /no usable summary \(empty, 1,400 chars of thinking\)/);
+  assert.match(result.description, /no usable summary \(empty, 1,000 chars of thinking\)/);
 });
 
 test('an unusable summary says why, and the rejected attempts are kept in the run ledger', async (t) => {
