@@ -6,8 +6,7 @@
 //
 // Pruned: the tool index and schema reveals, MCP, online research, run_subagent,
 // browser evaluation guards, rendered PDF pages, parked-call suspension, the
-// orchestration run log, Jev context views, and the deliberation-loop
-// directive (the detector that raised it is not in v1).
+// orchestration run log, and Jev context views.
 
 const { parseRawToolCalls } = require('./tool-call-parser');
 const { modelReadyMessages, estimateTokens } = require('./context-hygiene');
@@ -218,6 +217,7 @@ function createAgentLoop(rt) {
     const resultLimit = toolResultLimit(contextLength);
 
     let psychosisRetried = false;
+    let deliberationNudges = 0;
     for (let step = 0; step < maxAgentSteps; step++) {
       let content, thinking, toolCalls, stats;
       try {
@@ -227,6 +227,24 @@ function createAgentLoop(rt) {
         if (err.name !== 'PsychosisDetectedError') throw err;
         rt.session.usage.metrics.psychosisDetections += 1;
         sink().info(`⚠ LIVE GUARD: ${err.message} — excerpt: "${err.excerpt}"\nGeneration stopped immediately.`);
+
+        // A deliberation loop is not context corruption — the model is simply
+        // dithering, so compacting would throw away good context and change
+        // nothing. Tell it to commit and act instead.
+        if (err.recovery === 'directive') {
+          if (deliberationNudges >= 2) {
+            sink().info('Still looping after 2 nudges — stopping this turn. Try a smaller, more concrete request, or a different model.');
+            break;
+          }
+          deliberationNudges++;
+          conversation().push({
+            role: 'user',
+            meta: 'nudge',
+            content: 'You are planning in circles instead of acting. Stop deliberating now. Do not re-evaluate your approach again. Take the single smallest concrete action that tests your current best hypothesis — call one tool (read the actual file rather than reasoning about it, or make one minimal edit) — then reassess from the real result.',
+          });
+          sink().info(`Injected a commit-and-act directive (${deliberationNudges}/2) and retrying.`);
+          continue;
+        }
         if (psychosisRetried) {
           sink().info('Detected again after recovery — stopping this turn. Consider switching models or starting a new session.');
           break;
