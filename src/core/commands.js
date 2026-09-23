@@ -1,7 +1,7 @@
 // Ported from brittain-code@fa01d50fe707a9f72dfbad3550a56fe60effa14b:main.js commandHandlers() and the ipcMain.handle handlers the CLI needs
 'use strict';
 
-// The core's API (PLAN.md §6.4). One map; the REPL and print mode both go
+// The core's API (docs/PLAN.md §6.4). One map; the REPL and print mode both go
 // through it, so neither can reach something the other cannot. Handlers return
 // { ok, … } or { ok: false, error } like the source.
 

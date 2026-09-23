@@ -2,7 +2,7 @@
 'use strict';
 
 // One streamed model call. Which protocol it speaks is decided by the active
-// provider mode (PLAN.md §5); the request shape and the response framing both
+// provider mode (docs/PLAN.md §5); the request shape and the response framing both
 // differ, but everything below that — accumulation, degradation detection,
 // what reaches the sink — is identical either way.
 
@@ -16,7 +16,7 @@ const { LOGIN_HINT } = require('../lib/providers');
 const { TOOL_DEFS } = require('../lib/tools');
 const { PsychosisDetectedError, scanContentForPsychosis, scanThinkingForPsychosis } = require('./degradation');
 
-// Deviation: a rejected key names the fix in one line (PLAN.md §5.1) rather
+// Deviation: a rejected key names the fix in one line (docs/PLAN.md §5.1) rather
 // than surfacing the provider's raw 401 body.
 function authFailure(provider) {
   if (provider.mode === 'brittain') {

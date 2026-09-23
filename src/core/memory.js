@@ -4,7 +4,7 @@
 // What the agent remembers and where it lives. The app revealed the file in
 // Finder; the CLI returns the path so /memory can print it.
 //
-// Pruned: /workspace init and the memory move into .brittain/ (PLAN.md §4.3):
+// Pruned: /workspace init and the memory move into .brittain/ (docs/PLAN.md §4.3):
 // in-repo memory is used when .brittain/MEMORY.md already exists, and never
 // created by the CLI.
 

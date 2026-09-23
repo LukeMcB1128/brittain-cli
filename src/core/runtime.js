@@ -1,7 +1,7 @@
 'use strict';
 
 // The core, assembled. Everything main.js kept as module state lives on `rt`
-// (PLAN.md §6.3), so a process can hold more than one runtime and a test can
+// (docs/PLAN.md §6.3), so a process can hold more than one runtime and a test can
 // build one against a fake provider without touching global state.
 //
 // The core never writes to stdout: everything it has to say goes through

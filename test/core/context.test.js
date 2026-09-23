@@ -1,6 +1,6 @@
 'use strict';
 
-// PLAN.md M6 acceptance: compaction at the threshold, memory across chats,
+// docs/PLAN.md M6 acceptance: compaction at the threshold, memory across chats,
 // in-repo memory, and the context inspector.
 
 const test = require('node:test');

@@ -1,6 +1,6 @@
 'use strict';
 
-// PLAN.md M4 acceptance: `-p` completes a scripted task that reads, edits, and
+// docs/PLAN.md M4 acceptance: `-p` completes a scripted task that reads, edits, and
 // runs a command in a temp git repo; stream-json is one event per line.
 
 const test = require('node:test');

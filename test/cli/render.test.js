@@ -1,6 +1,6 @@
 'use strict';
 
-// PLAN.md M5: render snapshot tests over a scripted run.
+// docs/PLAN.md M5: render snapshot tests over a scripted run.
 
 const test = require('node:test');
 const assert = require('node:assert/strict');

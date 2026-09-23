@@ -1,7 +1,7 @@
 'use strict';
 
 // A local stand-in for every provider the CLI talks to. Tests never call a
-// real model (PLAN.md §1 rule 6).
+// real model (docs/PLAN.md §1 rule 6).
 //
 // Speaks both wire protocols on one port, under an optional path prefix (so a
 // test can point the Brittain mode at http://127.0.0.1:<port>/<prefix>/v1 and

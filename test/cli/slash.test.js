@@ -1,6 +1,6 @@
 'use strict';
 
-// PLAN.md M7 acceptance: each command has a parse test; /help output matches
+// docs/PLAN.md M7 acceptance: each command has a parse test; /help output matches
 // the table.
 
 const test = require('node:test');
@@ -16,7 +16,7 @@ const { createStyles } = require('../../src/cli/markdown');
 const { createFakeProvider } = require('../helpers/fake-provider');
 const { createTestHost, settingsFor } = require('../helpers/test-host');
 
-// PLAN.md M7, in order.
+// docs/PLAN.md M7, in order.
 const PLAN_TABLE = [
   '/help', '/clear', '/provider [brittain|openai|ollama]', '/model [name]',
   '/auto on|off', '/think on|off', '/compact', '/context', '/usage', '/cost', '/ledger',

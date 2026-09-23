@@ -1,7 +1,7 @@
 // Ported from brittain-code@fa01d50fe707a9f72dfbad3550a56fe60effa14b:src/tools/policy.js
 'use strict';
 
-// Pruned to the v1 tool set (PLAN.md §4.2). The subagent, orchestrator and
+// Pruned to the v1 tool set (docs/PLAN.md §4.2). The subagent, orchestrator and
 // coder role sets, SUBMIT_IMPLEMENTATION_PLAN_TOOL, and the network tools are
 // not ported, and neither is the chat-mode set (chat mode was removed). SENSITIVE_TOOLS and DESTRUCTIVE_TOOLS are empty in v1 — none of
 // their members were ported — but stay as sets so the approval path keeps its

@@ -179,6 +179,27 @@ written into it.
 
 The CLI itself sends no telemetry.
 
+## Development
+
+```bash
+git clone https://github.com/LukeMcB1128/brittain-cli
+cd brittain-cli
+npm link     # puts this checkout on your PATH as `brittain`
+npm test
+```
+
+There is no build step and nothing to install. The code is laid out as:
+
+| Path | Contents |
+|---|---|
+| `bin/` | The `brittain` entry point |
+| `src/cli/` | The terminal: arguments, REPL, print mode, rendering, slash commands |
+| `src/core/` | The agent runtime: loop, approvals, compaction, history, prompts |
+| `src/host/` | Data paths and the keychain |
+| `src/lib/` | Providers, tools, settings, and the stores |
+| `test/` | Mirrors `src/`; tests run against a fake provider, never a real model |
+| `docs/` | [The build plan](docs/PLAN.md) and the [event contract](docs/events.md) |
+
 ## License
 
 See [LICENSE](LICENSE).

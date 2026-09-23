@@ -313,7 +313,7 @@ function providerPath(provider, operation) {
 }
 
 // `redact` scrubs anything that must never be shown — the Brittain endpoint
-// (PLAN.md §5.2) — from the provider's body before it is excerpted.
+// (docs/PLAN.md §5.2) — from the provider's body before it is excerpted.
 function safeProviderError(status, body, { redact = (value) => value } = {}) {
   const code = Number(status) || 0;
   const text = String(redact(String(body || ''))).trim();

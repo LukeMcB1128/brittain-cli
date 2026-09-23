@@ -46,7 +46,7 @@ Options:
 const SUBCOMMANDS = new Set(['ask', 'config', 'login', 'logout', 'provider', 'models']);
 
 function createIO({ stdout, stderr, env }) {
-  // Last line of defence for PLAN.md §5.2: nothing the CLI prints can carry
+  // Last line of defence for docs/PLAN.md §5.2: nothing the CLI prints can carry
   // the Brittain endpoint, whichever code path produced the text.
   const clean = (text) => {
     const value = redactEndpoint(String(text), env);

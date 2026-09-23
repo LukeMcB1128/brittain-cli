@@ -414,7 +414,7 @@ test('a caller can raise the summary floor, and the retry names it', () => {
 test('a note the loop wrote mid-turn is never taken for the start of a turn', () => {
   // From a real session: the tail began at a failure directive, the request
   // that opened the turn was summarized away, and the model answered a goal it
-  // had read in PLAN.md instead.
+  // had read in docs/PLAN.md instead.
   const step = (i) => [
     { role: 'assistant', content: '', tool_calls: [{ function: { name: 'read_file', arguments: { path: `f${i}` } } }] },
     { role: 'tool', tool_name: 'read_file', content: 'x'.repeat(300) },
