@@ -410,3 +410,26 @@ test('a caller can raise the summary floor, and the retry names it', () => {
   assert.match(retryInstruction(raised), /Write at least 600/);
   assert.equal(validateSummary(summary, { minimumTokens: 99_999 }).required, 1200, 'capped');
 });
+
+test('a note the loop wrote mid-turn is never taken for the start of a turn', () => {
+  // From a real session: the tail began at a failure directive, the request
+  // that opened the turn was summarized away, and the model answered a goal it
+  // had read in PLAN.md instead.
+  const step = (i) => [
+    { role: 'assistant', content: '', tool_calls: [{ function: { name: 'read_file', arguments: { path: `f${i}` } } }] },
+    { role: 'tool', tool_name: 'read_file', content: 'x'.repeat(300) },
+  ];
+  const messages = [
+    { role: 'user', content: 'give me an overview' },
+    ...step(0), ...step(1), ...step(2),
+    { role: 'user', meta: 'nudge', content: 'These tool calls have failed twice…' },
+    ...step(3),
+    { role: 'user', meta: 'nudge', content: 'You have 5 model calls left for this request.' },
+    ...step(4),
+  ];
+  const turns = selectVerbatimTail(messages, estimateTokensDefault(messages.slice(7)) + 50);
+  assert.deepEqual(turns.tail, [], 'no whole turn fits, and a nudge is not a turn');
+  const inTurn = selectTurnTail(messages, estimateTokensDefault(messages.slice(7)) + 50);
+  assert.equal(inTurn.tail[0].content, 'give me an overview');
+  assert.equal(inTurn.tail[1].role, 'assistant');
+});

@@ -46,6 +46,7 @@ function summaryText(index) {
 test('one long turn on a 32k model compacts inside the turn and never overruns the window', async (t) => {
   const cwd = repo();
   let reads = 0;
+  let missing = 0;
   let summaries = 0;
   const agentRequests = [];
   const fake = await createFakeProvider({
@@ -58,6 +59,12 @@ test('one long turn on a 32k model compacts inside the turn and never overruns t
         return { text: summaryText(summaries) };
       }
       agentRequests.push(body);
+      // Guess a missing file twice mid-turn, as a real model did: the loop
+      // then adds a failure note to the conversation as a user-role message.
+      if (reads === 3 && missing < 2) {
+        missing += 1;
+        return { toolCalls: [{ name: 'read_file', arguments: { path: 'missing.js' } }] };
+      }
       if (reads < FILES) return { toolCalls: [{ name: 'read_file', arguments: { path: `module${reads++}.js` } }] };
       return { text: 'Ten modules, each defining computed constants. Report done.' };
     },
@@ -91,6 +98,8 @@ test('one long turn on a 32k model compacts inside the turn and never overruns t
     }
   }
 
+  // The failure note really was in the conversation mid-turn.
+  assert.ok(agentRequests.some((body) => body.messages.some((m) => /failed twice or were blocked/.test(m.content))));
   // The request survived verbatim, with the summary of what came before it.
   const last = agentRequests.at(-1).messages;
   assert.ok(last.some((m) => m.role === 'user' && m.content === REQUEST));

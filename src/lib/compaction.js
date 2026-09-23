@@ -46,8 +46,15 @@ function summaryBudget(contextLength, spokenFor = 0) {
 // A tail may only begin at a turn boundary. Starting mid-turn would hand the
 // model tool results whose originating assistant tool_calls were summarized
 // away — a shape Ollama rejects and the model cannot interpret.
+//
+// Deviation: only a message the person wrote starts a turn. The loop's own
+// notes (nudges, failure directives, the step-cap warning) and compaction's
+// notice are user-role messages too, and counting them let a tail begin at a
+// nudge in the middle of a turn — so the request that opened the turn was
+// summarized away, the record took its goal from whatever files had been read,
+// and the model answered a question nobody asked.
 function isTurnStart(message) {
-  return message?.role === 'user';
+  return message?.role === 'user' && message.meta !== 'nudge' && message.meta !== 'compaction';
 }
 
 function countTurns(messages) {
@@ -88,9 +95,7 @@ function selectVerbatimTail(messages, budgetTokens, estimateTokens = estimateTok
 //
 // A request is a user message written by the person, not one the loop wrote
 // (nudges) or compaction left behind.
-function isRequest(message) {
-  return message?.role === 'user' && message.meta !== 'nudge' && message.meta !== 'compaction';
-}
+const isRequest = isTurnStart;
 
 function selectTurnTail(messages, budgetTokens, estimateTokens = estimateTokensDefault) {
   const list = Array.isArray(messages) ? messages : [];
