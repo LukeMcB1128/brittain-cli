@@ -1,6 +1,6 @@
 'use strict';
 
-// PLAN.md M1 acceptance: the library is Electron-free, dependency-free, and
+// docs/PLAN.md M1 acceptance: the library is Electron-free, dependency-free, and
 // ships only the §4.2 tool set.
 
 const test = require('node:test');

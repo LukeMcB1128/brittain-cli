@@ -1,6 +1,6 @@
 'use strict';
 
-// The three provider modes (PLAN.md §5.1) and how each one resolves to a
+// The three provider modes (docs/PLAN.md §5.1) and how each one resolves to a
 // concrete { transport, endpoint, key, model }.
 //
 // Everything that talks to a provider goes through resolve(), so the rule

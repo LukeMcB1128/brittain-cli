@@ -1,9 +1,9 @@
 // Ported from brittain-code@fa01d50fe707a9f72dfbad3550a56fe60effa14b:tools.js (TOOL_DEFS)
 'use strict';
 
-// Tool schemas for the v1 tool set (PLAN.md §4.2), in the order the model
+// Tool schemas for the v1 tool set (docs/PLAN.md §4.2), in the order the model
 // sees them. Descriptions are shortened from the source to fit the token
-// budget (PLAN.md §4.1): each keeps its first sentence and any instruction
+// budget (docs/PLAN.md §4.1): each keeps its first sentence and any instruction
 // that matters for safety, and drops references to tools that do not exist in
 // v1. Add a tool here, to a handler map, and to policy.js together.
 

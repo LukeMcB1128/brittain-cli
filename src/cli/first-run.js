@@ -1,6 +1,6 @@
 'use strict';
 
-// Provider setup (PLAN.md §5.1). The Brittain mode needs nothing — the first
+// Provider setup (docs/PLAN.md §5.1). The Brittain mode needs nothing — the first
 // message just works. The other two are walked through the first time they
 // are chosen: OpenAI-compatible asks for an endpoint, then a key with echo
 // off, then lists the models and asks for one; Ollama pings the server and

@@ -1,6 +1,6 @@
 'use strict';
 
-// Where API keys live (PLAN.md §3).
+// Where API keys live (docs/PLAN.md §3).
 //
 //   macOS   the login Keychain, through /usr/bin/security
 //   Linux   the Secret Service, through secret-tool, when it is on PATH

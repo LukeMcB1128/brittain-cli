@@ -1,4 +1,4 @@
-// Ported from brittain-code@fa01d50fe707a9f72dfbad3550a56fe60effa14b:main.js "---------- live psychosis detector ----------" (+ scanThinkingForPsychosis from "---------- deliberation loops ----------")
+// Ported from brittain-code@fa01d50fe707a9f72dfbad3550a56fe60effa14b:main.js "---------- live psychosis detector ----------" (+ "---------- deliberation loops ----------")
 'use strict';
 
 const { SELF_TALK } = require('../lib/tools/files');
@@ -84,26 +84,124 @@ function scanContentForPsychosis(content, repetitionState) {
   return null;
 }
 
+// ---------- deliberation loops ----------
+// A model can be perfectly coherent and still be stuck: re-deciding the same
+// approach over and over, planning without ever calling a tool, until it runs
+// out of budget mid-sentence. Observed live at 31 restart phrases / 0 tool
+// calls / 0 lines written. That is NOT context degradation, so compaction is
+// the wrong medicine — it needs an instruction to commit and act.
+//
+// One "wait, let me reconsider" is healthy chain-of-thought. Six is a loop.
+const DELIBERATION_RESTART_RE = /(?:let me (?:write|do|start|plan|create|just|first)|(?:actually|wait),?\s+(?:let me|i realize|i should|i'll)|let me reconsider|think about this differently|be more (?:strategic|careful)|let me take a (?:different|step))/gi;
+const DELIBERATION_MAX_RESTARTS = 6;
+// Generous backstop for genuine deep reasoning; only catches true runaway.
+const THINKING_BUDGET_CHARS = 12_000;
+const CLOUD_THINKING_BUDGET_CHARS = 100_000;
+// CLI addition: restarts are counted in the newest stretch of the trace, not
+// the whole of it. The source counted the whole trace and so had to switch the
+// check off for long-reasoning models — which is every model in brittain mode.
+// Six restarts in ~1,000 tokens is a loop at any trace length.
+const DELIBERATION_WINDOW_CHARS = 4_000;
+// CLI addition: a trace that states the same sentence word for word three
+// times in that window is going round in circles. Long enough that a repeated
+// short line ("Let me check.") is not a hit.
+const THINKING_REPEAT_MIN_CHARS = 50;
+const THINKING_REPEAT_TIMES = 3;
+const THINKING_SCAN_INTERVAL = 500;
+
+// Large local models and current reasoning-first model families can produce a
+// long, coherent thinking trace before their first tool call. Give them the
+// same wide ceiling as cloud reasoning models. The short budget remains useful
+// for smaller local models, where a long trace is much more often a real loop.
+// CLI: brittain mode is a cloud reasoning model too.
+function usesExtendedReasoningBudget(model = '', provider = '') {
+  if (provider === 'openai' || provider === 'brittain') return true;
+  const name = String(model).toLowerCase();
+  if (/\bqwen3\.(?:[5-9]|\d{2,})\b/.test(name)) return true;
+  const sizes = [...name.matchAll(/(?:^|[:_\/-])(\d+(?:\.\d+)?)b(?=$|[-_])/g)]
+    .map((match) => Number(match[1]))
+    .filter(Number.isFinite);
+  return sizes.some((size) => size >= 20);
+}
+
+// CLI addition: a trace cannot usefully be longer than about half the window
+// (4 chars a token, so 2 chars per token of window) — past that the answer has
+// no room left, whatever the model's family.
+function thinkingBudget({ model, provider, contextLength } = {}) {
+  const budget = usesExtendedReasoningBudget(model, provider) ? CLOUD_THINKING_BUDGET_CHARS : THINKING_BUDGET_CHARS;
+  return contextLength > 0 ? Math.min(budget, Math.max(THINKING_BUDGET_CHARS, contextLength * 2)) : budget;
+}
+
+// Sentence-level rather than findRepeatedSubstring's strided chunks: a loop
+// in reasoning re-states whole sentences a few times, and a stride only lines
+// up with a repeat after many more cycles than that.
+function findRepeatedSentence(text, minChars = THINKING_REPEAT_MIN_CHARS, times = THINKING_REPEAT_TIMES) {
+  const counts = new Map();
+  for (const raw of String(text).split(/(?<=[.!?])\s+|\n+/)) {
+    const sentence = raw.replace(/\s+/g, ' ').trim().toLowerCase();
+    if (sentence.length < minChars) continue;
+    const count = (counts.get(sentence) || 0) + 1;
+    counts.set(sentence, count);
+    if (count >= times) return raw.trim();
+  }
+  return null;
+}
+
+function countDeliberationRestarts(thinking) {
+  DELIBERATION_RESTART_RE.lastIndex = 0;
+  return (thinking.match(DELIBERATION_RESTART_RE) || []).length;
+}
+
 // Reasoning traces legitimately say things like "Wait, let me reconsider" —
 // that's normal chain-of-thought, not psychosis. Only glitch tokens (mojibake
 // is mojibake regardless of channel) are checked for corruption in `thinking`;
-// self-talk and verbatim repetition stay scoped to the final answer, matching
-// how SELF_TALK is tuned (a comment-prefixed phrase leaking into code).
+// self-talk stays scoped to the final answer, matching how SELF_TALK is tuned
+// (a comment-prefixed phrase leaking into code). Deliberation loops are the
+// exception: they only exist in the thinking channel.
 //
-// Pruned: the deliberation-loop restart count and thinking-length budget
-// (main.js "deliberation loops" is not in v1). The signature keeps the
-// throttle state so the stream's call site is unchanged.
-function scanThinkingForPsychosis(thinking, _thinkingState = { value: 0 }, _model = '') {
+// `options` is { model, provider, contextLength } (the source read the provider
+// from a global).
+function scanThinkingForPsychosis(thinking, thinkingState = { value: 0 }, options = {}) {
   const tail = thinking.slice(-300);
   if (RAW_CHANNEL_MARKER_RE.test(tail)) return { reason: 'raw model channel marker in reasoning', excerpt: tail.slice(-160), recovery: 'compact' };
   if (CONTEXT_RESET_RE.test(withoutQuotedSpans(tail))) return { reason: 'active task was lost from reasoning context', excerpt: tail.slice(-160), recovery: 'compact' };
   if (GLITCH_TOKEN_RE.test(tail)) return { reason: 'raw byte-fallback/replacement token in reasoning', excerpt: tail.slice(-120), recovery: 'compact' };
   if (GLITCH_FULLWIDTH_RE.test(tail)) return { reason: 'full-width punctuation in reasoning where ASCII was expected', excerpt: tail.slice(-120), recovery: 'compact' };
+
+  // The checks below are throttled: re-scanning a growing string on every
+  // token would be O(n) per chunk.
+  if (thinking.length - thinkingState.value >= THINKING_SCAN_INTERVAL) {
+    thinkingState.value = thinking.length;
+    const recent = thinking.slice(-DELIBERATION_WINDOW_CHARS);
+    const restarts = countDeliberationRestarts(recent);
+    if (restarts >= DELIBERATION_MAX_RESTARTS) {
+      return {
+        reason: `deliberation loop — ${restarts} restarts ("let me…", "actually, let me…") without acting`,
+        excerpt: tail.slice(-160),
+        recovery: 'directive',
+      };
+    }
+    const repeat = findRepeatedSentence(recent);
+    if (repeat) {
+      return { reason: 'reasoning is repeating itself word for word', excerpt: repeat.slice(0, 100), recovery: 'directive' };
+    }
+    const budget = thinkingBudget(options);
+    if (thinking.length >= budget) {
+      return {
+        reason: `reasoning exceeded ${budget.toLocaleString()} chars without producing a tool call or answer`,
+        excerpt: tail.slice(-160),
+        recovery: 'directive',
+      };
+    }
+  }
   return null;
 }
 
 module.exports = {
   PsychosisDetectedError,
+  countDeliberationRestarts,
+  findRepeatedSentence,
+  thinkingBudget,
   findRepeatedSubstring,
   scanContentForPsychosis,
   scanThinkingForPsychosis,

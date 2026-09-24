@@ -1,6 +1,6 @@
 'use strict';
 
-// The seam between the core and whatever is running it (PLAN.md §7.1). The
+// The seam between the core and whatever is running it (docs/PLAN.md §7.1). The
 // core never touches the terminal, the keychain, or the filesystem layout
 // directly; it asks the host.
 

@@ -1,6 +1,6 @@
 'use strict';
 
-// PLAN.md M3 acceptance: `brittain ask` streams in all three modes.
+// docs/PLAN.md M3 acceptance: `brittain ask` streams in all three modes.
 
 const test = require('node:test');
 const assert = require('node:assert/strict');

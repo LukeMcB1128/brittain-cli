@@ -1,6 +1,6 @@
 'use strict';
 
-// PLAN.md M2 acceptance.
+// docs/PLAN.md M2 acceptance.
 
 const test = require('node:test');
 const assert = require('node:assert/strict');

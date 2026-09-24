@@ -2,7 +2,7 @@
 'use strict';
 
 // The conversation, its context state, usage, and spend — everything main.js
-// kept in top-level `let`s — now owned by rt.session (PLAN.md §6.3).
+// kept in top-level `let`s — now owned by rt.session (docs/PLAN.md §6.3).
 //
 // Pruned: attachments, the online-research latch, and the subagent, coder,
 // and verifier usage buckets with the metrics only they fed (Jev, loops,

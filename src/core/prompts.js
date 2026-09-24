@@ -3,7 +3,7 @@
 
 // The system prompts and the tool payload sent with them.
 //
-// Pruned (PLAN.md §4.4): every line about browser tools, run_subagent, online
+// Pruned (docs/PLAN.md §4.4): every line about browser tools, run_subagent, online
 // research, attachments, calculate, research logs, and the no-screen (remote)
 // addendum. The tool-index/stubbing machinery is not ported (§4.1): v1 sends
 // every schema in full, and the budget test holds the total down instead.

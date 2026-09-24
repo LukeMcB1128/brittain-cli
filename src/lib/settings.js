@@ -11,7 +11,7 @@
 // settings.json files keep working.
 //
 // Replaced: the single inferenceEndpoint/provider pair and per-mode model
-// fields with one record per provider mode (PLAN.md §5.1), so switching modes
+// fields with one record per provider mode (docs/PLAN.md §5.1), so switching modes
 // never loses a configuration. The Brittain mode's endpoint is never stored
 // here — see src/lib/providers/brittain.js.
 

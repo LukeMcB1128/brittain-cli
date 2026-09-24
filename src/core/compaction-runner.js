@@ -1,7 +1,7 @@
 // Ported from brittain-code@fa01d50fe707a9f72dfbad3550a56fe60effa14b:main.js "---------- conversation compaction ----------" (compactConversation, and maybePrecompact from the chat job section)
 'use strict';
 
-// Native compaction only (PLAN.md §6.2): the Jev path is not in v1.
+// Native compaction only (docs/PLAN.md §6.2): the Jev path is not in v1.
 //
 // Pruned: the Jev branch, image-aware measurement (there are no images), and
 // the project-check count in the ledger total (run_project_check is not in

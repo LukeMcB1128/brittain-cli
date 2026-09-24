@@ -1,6 +1,6 @@
 'use strict';
 
-// PLAN.md §4.1: system prompt + tool schemas for an empty conversation with no
+// docs/PLAN.md §4.1: system prompt + tool schemas for an empty conversation with no
 // memory, built exactly as the agent loop sends them.
 
 const test = require('node:test');

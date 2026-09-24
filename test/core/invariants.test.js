@@ -1,6 +1,6 @@
 'use strict';
 
-// PLAN.md M4: the safety invariants hold whatever the mode or flag.
+// docs/PLAN.md M4: the safety invariants hold whatever the mode or flag.
 
 const test = require('node:test');
 const assert = require('node:assert/strict');

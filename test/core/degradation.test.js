@@ -7,6 +7,7 @@ const {
   PsychosisDetectedError,
   scanContentForPsychosis,
   scanThinkingForPsychosis,
+  thinkingBudget,
 } = require('../../src/core/degradation');
 const { SELF_TALK } = require('../../src/lib/tools/files');
 
@@ -119,9 +120,84 @@ const REAL_DELIBERATION_TRACE = [
   'Let me plan the exact changes.',
 ].join('\n');
 
+// Distinct sentences, so a check for verbatim repetition has nothing to find.
+const productive = (chars, from = 0) => {
+  const lines = [];
+  for (let n = from; lines.join(' ').length < chars; n++) {
+    lines.push(`Step ${n}: the parser at depth ${n % 7} reads token ${n * 13} and records its span.`);
+  }
+  return lines.join(' ');
+};
 
+test('deliberation: a real looping trace is caught and routed to directive recovery', () => {
+  const hit = scanThinkingForPsychosis(REAL_DELIBERATION_TRACE, { value: 0 });
+  assert.ok(hit, 'expected the looping trace to trigger');
+  assert.match(hit.reason, /deliberation loop/);
+  assert.equal(hit.recovery, 'directive', 'compaction is the wrong fix for dithering');
+});
 
+test('deliberation: the loop is caught for a cloud reasoning model too', () => {
+  const hit = scanThinkingForPsychosis(REAL_DELIBERATION_TRACE, { value: 0 }, { model: 'run5c-step-0128', provider: 'brittain', contextLength: 32_768 });
+  assert.match(hit?.reason || '', /deliberation loop/);
+});
 
+test('deliberation: normal chain-of-thought with one or two course-corrections is NOT flagged', () => {
+  const healthy = [
+    'The user wants a scrollbar. Let me start by reading the CSS to see how the container is sized.',
+    'Wait, let me reconsider — the overflow is probably on the parent, not the child.',
+    'I will read styles.css and confirm before changing anything.',
+  ].join('\n');
+  assert.equal(scanThinkingForPsychosis(healthy, { value: 0 }), null);
+});
+
+// Deviation: the source used one sentence repeated 120 times as "productive"
+// reasoning. Verbatim repetition is now a loop signal, so the filler is
+// distinct sentences instead.
+test('deliberation: long but productive reasoning under the budget is not flagged', () => {
+  const dense = productive(8000);
+  assert.ok(dense.length > 5000 && dense.length < 12000);
+  assert.equal(scanThinkingForPsychosis(dense, { value: 0 }), null);
+});
+
+test('deliberation: restarts spread across a long trace are not a loop; bunched together they are', () => {
+  const restarts = ['Let me start with the parser.', 'Actually, let me check the lexer.', 'Let me reconsider the grammar.',
+    'Let me first read the tests.', 'Wait, I should check the fixtures.', 'Let me just run the suite.'];
+  const spread = restarts.map((line, index) => `${line} ${productive(1500, index * 100)}`).join(' ');
+  const options = { provider: 'brittain', contextLength: 131_072 };
+  assert.equal(scanThinkingForPsychosis(spread, { value: 0 }, options), null);
+  assert.match(scanThinkingForPsychosis(`${productive(6000)} ${restarts.join(' ')}`, { value: 0 }, options)?.reason || '', /deliberation loop/);
+});
+
+test('deliberation: reasoning that repeats a passage word for word is a loop', () => {
+  const passage = 'So the calculator is rendered into #root and the CSS centres it, which means the problem must be elsewhere. ';
+  const hit = scanThinkingForPsychosis(`${productive(1000)} ${passage.repeat(3)}`, { value: 0 }, { provider: 'brittain', contextLength: 32_768 });
+  assert.match(hit?.reason || '', /repeating itself/);
+  assert.equal(hit.recovery, 'directive');
+});
+
+test('deliberation: runaway reasoning trips the char budget even without restart phrases', () => {
+  const runaway = productive(12_500);
+  const hit = scanThinkingForPsychosis(runaway, { value: 0 });
+  assert.ok(hit);
+  assert.match(hit.reason, /exceeded/);
+  assert.equal(hit.recovery, 'directive');
+});
+
+test('deliberation: the budget is wide for cloud and large models, and never more than half the window', () => {
+  assert.equal(thinkingBudget({ model: 'qwen3:8b', provider: 'ollama' }), 12_000);
+  assert.equal(thinkingBudget({ model: 'qwen3:32b', provider: 'ollama' }), 100_000);
+  assert.equal(thinkingBudget({ provider: 'brittain', contextLength: 32_768 }), 65_536);
+  assert.equal(thinkingBudget({ provider: 'openai', contextLength: 200_000 }), 100_000);
+  assert.equal(thinkingBudget({ model: 'qwen3:8b', provider: 'ollama', contextLength: 4096 }), 12_000);
+});
+
+test('deliberation: scan is throttled — state advances only past the interval', () => {
+  const state = { value: 0 };
+  scanThinkingForPsychosis('short'.repeat(10), state); // 50 chars, under 500
+  assert.equal(state.value, 0, 'should not have scanned yet');
+  scanThinkingForPsychosis(productive(600), state);
+  assert.ok(state.value >= 600, 'should have scanned and recorded position');
+});
 
 test('deliberation: glitch tokens in reasoning still route to compaction, not directive', () => {
   const hit = scanThinkingForPsychosis('value is getTitle．Content here', { value: 0 });

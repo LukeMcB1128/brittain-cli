@@ -1,6 +1,6 @@
 'use strict';
 
-// Slash commands (PLAN.md M7). Each entry is { usage, summary, run }. /help
+// Slash commands (docs/PLAN.md M7). Each entry is { usage, summary, run }. /help
 // prints exactly this table, so a command cannot exist without being listed.
 //
 // Every handler goes through runtime.commands — the same map print mode uses —

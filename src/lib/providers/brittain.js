@@ -1,7 +1,7 @@
 'use strict';
 
 // The Brittain provider mode: everything specific to the Brittain API lives in
-// this one file (PLAN.md §5.2).
+// this one file (docs/PLAN.md §5.2).
 //
 // The endpoint is kept out of the UI — it is not written to settings.json and
 // is never printed by config, /provider, /context, --verbose, or an error. That
