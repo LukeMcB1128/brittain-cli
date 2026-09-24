@@ -37,7 +37,7 @@ const ollamaTransport = {
   id: 'ollama',
   needsKey: false,
 
-  request({ endpoint, model, messages, tools, think, numCtx, temperature, keepAlive, maxTokens, extraHeaders }) {
+  request({ endpoint, model, messages, tools, think, numCtx, temperature, keepAlive, maxTokens, extraHeaders, repetitionPenalty }) {
     return {
       url: endpoint.replace(/\/+$/, '') + '/api/chat',
       // Ollama itself takes no key; extraHeaders exists so the Brittain mode can
@@ -56,6 +56,9 @@ const ollamaTransport = {
           num_ctx: numCtx,
           temperature,
           ...(maxTokens ? { num_predict: maxTokens } : {}),
+          // Sent even at Ollama's own default so the setting means one thing
+          // everywhere.
+          ...(repetitionPenalty ? { repeat_penalty: repetitionPenalty } : {}),
         },
         ...(think === undefined ? {} : { think }),
       },
@@ -167,11 +170,22 @@ function toOpenAIMessages(messages) {
   return out;
 }
 
+// CLI addition. vLLM (the Brittain API), SGLang, OpenRouter and most
+// OpenAI-compatible servers take `repetition_penalty`, a multiplier. OpenAI
+// itself rejects fields it does not know and has only `frequency_penalty`, an
+// additive penalty scaled by how often a token already appeared; the stream
+// falls back to it when a provider refuses the first. 1.05 maps to 0.1.
+function penaltyFields(repetitionPenalty, style) {
+  if (!(repetitionPenalty > 1)) return {};
+  if (style === 'frequency') return { frequency_penalty: Math.round((repetitionPenalty - 1) * 200) / 100 };
+  return { repetition_penalty: repetitionPenalty };
+}
+
 const openAITransport = {
   id: 'openai',
   needsKey: true,
 
-  request({ endpoint, apiKey, model, messages, tools, think, temperature, maxTokens, extraHeaders }) {
+  request({ endpoint, apiKey, model, messages, tools, think, temperature, maxTokens, extraHeaders, repetitionPenalty, penaltyStyle = 'repetition' }) {
     return {
       // The endpoint setting holds the base URL — https://openrouter.ai/api/v1
       // or https://api.z.ai/api/paas/v4 — exactly as the provider documents it.
@@ -189,6 +203,7 @@ const openAITransport = {
         stream: true,
         temperature,
         ...(maxTokens ? { max_tokens: maxTokens } : {}),
+        ...penaltyFields(repetitionPenalty, penaltyStyle),
         // `think` had no route through this transport at all, so callers that
         // asked for it off — the summarizers do — still got a thinking model.
         // The trace is charged to the same max_tokens as the answer, so a
@@ -341,6 +356,7 @@ function estimateCost(stats, rates) {
 }
 
 module.exports = {
+  penaltyFields,
   ollamaTransport,
   openAITransport,
   transportFor,

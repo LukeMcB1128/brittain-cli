@@ -42,6 +42,12 @@ const DEFAULT_SETTINGS = Object.freeze({
   compactThreshold: 0.8,
   keepAlive: '5m',
   codeTemperature: 0.3,
+  // CLI addition. Sent on every request; 1 turns it off. At temperature 0.3
+  // with no penalty, run5c looped on a two-line pair for as long as it was
+  // allowed to. 1.05 is the value Qwen ships for its coder models: enough to
+  // tip a loop, mild enough that copying code from a file read still works
+  // (vLLM applies it to prompt tokens too).
+  repetitionPenalty: 1.05,
   codeThink: false,
   autoApprove: false,
   globalCodeInstructions: '',
@@ -135,6 +141,7 @@ function normalizeSettings(input = {}) {
     compactThreshold: clampNumber(merged.compactThreshold, DEFAULT_SETTINGS.compactThreshold, 0.5, 0.9),
     keepAlive: ['0', '5m', '30m', '-1'].includes(String(merged.keepAlive)) ? String(merged.keepAlive) : DEFAULT_SETTINGS.keepAlive,
     codeTemperature: clampNumber(merged.codeTemperature, DEFAULT_SETTINGS.codeTemperature, 0, 1.5),
+    repetitionPenalty: clampNumber(merged.repetitionPenalty, DEFAULT_SETTINGS.repetitionPenalty, 1, 1.5),
     codeThink: !!merged.codeThink,
     autoApprove: !!merged.autoApprove,
     globalCodeInstructions: cleanText(merged.globalCodeInstructions, 12_000),

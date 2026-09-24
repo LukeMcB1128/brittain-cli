@@ -81,6 +81,11 @@ brittain provider ollama   # lists your installed models; pick one
 If Ollama runs somewhere else:
 `brittain config set providers.ollama.endpoint http://gpu-box:11434`.
 
+Every request carries a repetition penalty (default `1.05`), sent as
+`repetition_penalty`, or `repeat_penalty` for Ollama. A provider that
+refuses that field gets `frequency_penalty` instead. Change it with
+`brittain config set repetitionPenalty 1.1`; `1` turns it off.
+
 `brittain models` lists the models for the active provider, and `/model <part of
 a name>` switches between them.
 

@@ -28,10 +28,21 @@ function authFailure(provider) {
   return 'The server refused the request (401/403).';
 }
 
+// A provider that refuses `repetition_penalty` names the field in its 400.
+function rejectsRepetitionPenalty(status, body) {
+  return status === 400 && /repetition_penalty/i.test(String(body || ''))
+    && /unrecogni[sz]ed|unknown|not (?:permitted|allowed|supported)|extra (?:inputs|fields)|unexpected/i.test(String(body || ''));
+}
+
 function createStream(rt) {
+  // Endpoints that refused `repetition_penalty` this process; they get
+  // `frequency_penalty` instead, so a penalty is always sent.
+  const frequencyOnly = new Set();
+
   async function streamChat(model, messages, signal, think, silent = false, numCtx = 8192, toolset = TOOL_DEFS, recovery = { toolCallRetries: 0 }, temperature = rt.config.settings().codeTemperature, maxTokens = 0) {
     const provider = rt.providers.resolve();
     const { transport } = provider;
+    const penaltyKey = `${provider.mode}:${provider.endpoint}`;
     const { url, headers, body } = transport.request({
       endpoint: provider.endpoint,
       apiKey: provider.apiKey,
@@ -44,6 +55,8 @@ function createStream(rt) {
       temperature,
       keepAlive: rt.config.settings().keepAlive,
       maxTokens,
+      repetitionPenalty: rt.config.settings().repetitionPenalty,
+      penaltyStyle: frequencyOnly.has(penaltyKey) ? 'frequency' : 'repetition',
     });
     let res;
     try {
@@ -61,6 +74,11 @@ function createStream(rt) {
     if (!res.ok) {
       const errorBody = await res.text();
       if (res.status === 401 || res.status === 403) throw new Error(authFailure(provider));
+      if (!frequencyOnly.has(penaltyKey) && rejectsRepetitionPenalty(res.status, errorBody)) {
+        frequencyOnly.add(penaltyKey);
+        rt.sink.info('This provider does not take repetition_penalty — using frequency_penalty instead.');
+        return streamChat(model, messages, signal, think, silent, numCtx, toolset, recovery, temperature, maxTokens);
+      }
       if (toolset && isToolCallParseError(res.status, errorBody)) {
         if ((recovery.toolCallRetries || 0) < 1) {
           rt.session.usage.metrics.toolCallRetries += 1;
