@@ -92,6 +92,30 @@ test('live reasoning is streamed dimmed, then collapsed to one line', () => {
   assert.match(text, /Answer\n$/);
 });
 
+test('blank lines opening an answer are dropped, so the answer sits right under the thought', () => {
+  for (const live of [false, true]) {
+    const out = sink();
+    const renderer = createRenderer({ out, color: false, live, columns: () => 80 });
+    renderer.handle('stream:thinking', 'Recall the earlier question.');
+    renderer.handle('stream:token', '\n');
+    renderer.handle('stream:token', '\n  \nYou asked about render.js.\n\nIt adds the newline.');
+    renderer.handle('stream:message', '…');
+    // Live mode rewrites each finished line in place, so it is checked only
+    // for what matters here: nothing between the thought and the answer.
+    const expected = live ? /✻ Thought \(28 chars\)\nYou asked/ : /✻ Thought \(28 chars\)\nYou asked about render\.js\.\n\nIt adds the newline\.\n$/;
+    assert.match(out.text(), expected, live ? 'live' : 'buffered');
+  }
+  // The next message after a tool call is trimmed too.
+  const out = sink();
+  const renderer = createRenderer({ out });
+  renderer.handle('stream:token', 'First.');
+  renderer.handle('stream:message', 'First.');
+  renderer.handle('stream:toolcall', { name: 'read_file', args: { path: 'a' } });
+  renderer.handle('stream:token', '\n\nSecond.');
+  renderer.handle('stream:message', 'Second.');
+  assert.equal(out.text(), 'First.\n→ read_file(path=a)\nSecond.\n');
+});
+
 test('a failed run and a stop are reported plainly', () => {
   const out = sink();
   const renderer = createRenderer({ out });

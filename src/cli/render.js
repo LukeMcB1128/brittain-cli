@@ -25,6 +25,7 @@ function createRenderer({ out, color = false, live = false, columns = () => 80 }
   const cols = () => Math.max(20, Number(columns()) || 80);
 
   let partial = '';        // the answer line still being written
+  let answerStarted = false; // has this message shown any text yet?
   let atLineStart = true;  // is the cursor in column 0?
   let thinking = '';
   let thinkingRows = 0;    // rows the live reasoning stream occupies
@@ -82,6 +83,13 @@ function createRenderer({ out, color = false, live = false, columns = () => 80 }
   }
 
   function onToken(text) {
+    // Models often open an answer with blank lines — usually "\n\n" right
+    // after their reasoning — which drew as a gap under "✻ Thought".
+    if (!answerStarted) {
+      text = String(text).replace(/^(?:[ \t]*\n)+/, '');
+      if (!text) return;
+      answerStarted = true;
+    }
     collapseThinking();
     const pieces = String(text).split('\n');
     for (let i = 0; i < pieces.length; i++) {
@@ -101,6 +109,7 @@ function createRenderer({ out, color = false, live = false, columns = () => 80 }
   // End of an assistant message (or anything that interrupts it): the last
   // line has no newline yet, so render it now.
   function flush() {
+    answerStarted = false;
     collapseThinking();
     if (partial) {
       completeLine(partial);
