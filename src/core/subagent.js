@@ -15,8 +15,9 @@
 //     qwen3:8b scout, which brittain mode does not have).
 //   - Its window is the model's effective context, not a 24k cap: the cap
 //     spared a local machine's memory, and a hosted model has no such cost.
-//   - A request that would overrun that window ends exploration and goes
-//     straight to the report, with the oldest results cut down to fit.
+//   - At 85% of that window (or sooner, if a request could not fit the
+//     reply) it stops exploring and goes straight to the report, with the
+//     oldest results cut down to fit.
 //   - Sensitive reads still ask the human, exactly as they do for the lead.
 //   - The repeat and failure guards run on its calls as well.
 
@@ -31,6 +32,9 @@ const SUBAGENT_MAX_STEPS = 12;
 const SUBAGENT_REPORT_CAP = 6000;   // chars of findings returned to the main agent
 const SUBAGENT_TIMEOUT_MS = 240_000; // wall-clock cap — model swapping makes steps slow, but not infinite
 const WRAP_UP_TIMEOUT_MS = 60_000;
+// Past this share of its window the subagent stops exploring and reports, so
+// the report is written with room to spare rather than squeezed in at the end.
+const SUBAGENT_REPORT_AT = 0.85;
 
 function subagentSystemPrompt(cwd) {
   return [
@@ -72,6 +76,9 @@ function createSubagentRunner(rt, { safeExecute, hardInputFor }) {
     const model = rt.config.settings().subagentModel || leadModel;
     const contextLength = await rt.models.effectiveContext(model);
     const hardInput = hardInputFor(contextLength);
+    // Whichever comes first: 85% of the window, or the most a request may
+    // carry (on a 32k window that is already ~81%).
+    const reportAt = Math.min(Math.floor(contextLength * SUBAGENT_REPORT_AT), hardInput);
     const resultLimit = toolResultLimit(contextLength);
     const tools = rt.prompts.subagentToolDefs();
     const toolTokens = estimateContextTokens(tools);
@@ -102,8 +109,9 @@ function createSubagentRunner(rt, { safeExecute, hardInputFor }) {
     try {
       for (let step = 0; step < SUBAGENT_MAX_STEPS; step++) {
         if (rt.run.stopRequested || signal.aborted) break;
-        if (estimateContextTokens(msgs) + toolTokens > hardInput) {
-          note = 'its context window filled';
+        const used = estimateContextTokens(msgs) + toolTokens;
+        if (used > reportAt) {
+          note = `its context reached ${Math.round((used / contextLength) * 100)}% of the window`;
           break;
         }
         let { content, toolCalls, stats } = await rt.stream.streamChat(model, msgs, signal, useThink, true, contextLength, tools, { toolCallRetries: 0 }, temperature);
@@ -204,6 +212,7 @@ function createSubagentRunner(rt, { safeExecute, hardInputFor }) {
 
 module.exports = {
   SUBAGENT_MAX_STEPS,
+  SUBAGENT_REPORT_AT,
   SUBAGENT_REPORT_CAP,
   createSubagentRunner,
   subagentSystemPrompt,

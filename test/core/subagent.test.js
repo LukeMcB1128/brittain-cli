@@ -29,12 +29,13 @@ const isTitle = (body) => /Create a clear title/.test(String(body.messages?.[0]?
 const call = (name, args) => ({ toolCalls: [{ name, arguments: args }] });
 
 // `lead` and `scout` are scripts: arrays of turns, or functions of the body.
-async function run(t, { lead, scout, settings = {}, approvals = [], text = 'why is the calculator missing?' }) {
+async function run(t, { lead, scout, settings = {}, approvals = [], text = 'why is the calculator missing?', contextLength }) {
   const script = (turns) => (typeof turns === 'function' ? turns : (() => { let i = 0; return () => turns[Math.min(i++, turns.length - 1)]; })());
   const nextLead = script(lead);
   const nextScout = script(scout);
   const bodies = { lead: [], scout: [] };
   const fake = await createFakeProvider({
+    ...(contextLength ? { contextLength } : {}),
     respond: (body) => {
       if (isTitle(body)) return { text: 'T' };
       if (isSubagent(body)) { bodies.scout.push(body); return nextScout(body); }
@@ -147,26 +148,40 @@ test('an empty task is refused without starting a subagent', async (t) => {
   assert.match(runtime.rt.session.conversation.find((m) => m.role === 'tool').content, /requires a task/);
 });
 
-test('a subagent whose window fills stops exploring and reports from what fits', async (t) => {
-  let reads = 0;
-  const { runtime, bodies } = await run(t, {
-    lead: [delegate, { text: 'done' }],
-    scout: (body) => {
-      if (!body.tools) return { text: 'Read several modules; the calculator is in module0.' };
-      const file = `big${reads++}.js`;
-      fs.writeFileSync(path.join(body.messages[0].content.match(/Working directory: (\S+)/)[1], file),
-        Array.from({ length: 400 }, (_, n) => `const line${n} = "${file} ${n}";`).join('\n'));
-      return call('read_file', { path: file });
-    },
-    settings: { mainContextCap: 8192 },
+// 8k: a request that could not fit the reply comes first (~81%). 64k: 85%
+// comes first (a request may carry ~91% there).
+for (const window of [8192, 65_536]) {
+  test(`a subagent past 85% of a ${window.toLocaleString()}-token window stops exploring and reports`, async (t) => {
+    let reads = 0;
+    const estimate = (body) => Math.round(JSON.stringify([...(body.messages || []), ...(body.tools || [])]).length / 4);
+    const { runtime, bodies } = await run(t, {
+      lead: [delegate, { text: 'done' }],
+      scout: (body) => {
+        if (!body.tools) return { text: 'Read several modules; the calculator is in module0.' };
+        // Big steps (two reads) until three quarters full, so a 64k window
+        // fills before the 12-call cap; then small ones, so some requests
+        // land between 85% and the ~91% a request may carry at 64k — the
+        // band only the 85% rule stops.
+        const nearlyFull = estimate(body) > window * 0.75;
+        const toolCalls = (nearlyFull ? [0] : [0, 1]).map(() => {
+          const file = `big${reads++}.js`;
+          fs.writeFileSync(path.join(body.messages[0].content.match(/Working directory: (\S+)/)[1], file),
+            Array.from({ length: nearlyFull ? 150 : 1200 }, (_, n) => `const line${n} = "${file} ${n}";`).join('\n'));
+          return { name: 'read_file', arguments: { path: file } };
+        });
+        return { toolCalls };
+      },
+      contextLength: window,
+    });
+    const exploring = bodies.scout.filter((body) => body.tools);
+    for (const body of exploring) assert.ok(estimate(body) <= window * 0.85, `scout request of ~${estimate(body)} tokens`);
+    assert.ok(exploring.length < SUBAGENT_MAX_STEPS, 'stopped before the step cap');
+    assert.equal(bodies.scout.at(-1).tools, undefined, 'the report was asked for with tools off');
+    const toolMessage = runtime.rt.session.conversation.find((m) => m.role === 'tool');
+    assert.match(toolMessage.content, /stopped early: its context reached \d+% of the window/);
+    assert.match(toolMessage.content, /calculator is in module0/);
   });
-  const estimate = (body) => Math.round(JSON.stringify([...(body.messages || []), ...(body.tools || [])]).length / 4);
-  for (const body of bodies.scout) assert.ok(estimate(body) < 8192, `scout request of ~${estimate(body)} tokens`);
-  assert.ok(bodies.scout.filter((body) => body.tools).length < SUBAGENT_MAX_STEPS, 'stopped before the step cap');
-  const toolMessage = runtime.rt.session.conversation.find((m) => m.role === 'tool');
-  assert.match(toolMessage.content, /stopped early: its context window filled/);
-  assert.match(toolMessage.content, /calculator is in module0/);
-});
+}
 
 test('Ctrl-C during a subagent stops the whole run', async (t) => {
   let runtime;
