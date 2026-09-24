@@ -132,6 +132,14 @@ title.
 | `/export [path]` | Save the chat as Markdown |
 | `/tools` | The tools and their risk flags |
 
+For exploration that would read many files, the agent can hand the job to a
+**subagent**: a read-only helper with its own context window that returns
+only a findings report, so the file contents never fill up your conversation.
+You see its steps as `⤷` lines. It can read and search, but never edit, run
+commands or ask you anything; reading a secret like `.env` still asks you
+first. It uses the same model unless you set another:
+`brittain config set subagentModel <model>`.
+
 A `BRITTAIN.md` in the project root is read into every session as
 project instructions.
 

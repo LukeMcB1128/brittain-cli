@@ -48,6 +48,9 @@ const DEFAULT_SETTINGS = Object.freeze({
   // tip a loop, mild enough that copying code from a file read still works
   // (vLLM applies it to prompt tokens too).
   repetitionPenalty: 1.05,
+  // CLI addition. The model run_subagent uses on the active provider; empty
+  // means the lead's own model.
+  subagentModel: '',
   codeThink: false,
   autoApprove: false,
   globalCodeInstructions: '',
@@ -142,6 +145,7 @@ function normalizeSettings(input = {}) {
     keepAlive: ['0', '5m', '30m', '-1'].includes(String(merged.keepAlive)) ? String(merged.keepAlive) : DEFAULT_SETTINGS.keepAlive,
     codeTemperature: clampNumber(merged.codeTemperature, DEFAULT_SETTINGS.codeTemperature, 0, 1.5),
     repetitionPenalty: clampNumber(merged.repetitionPenalty, DEFAULT_SETTINGS.repetitionPenalty, 1, 1.5),
+    subagentModel: cleanText(merged.subagentModel, 200),
     codeThink: !!merged.codeThink,
     autoApprove: !!merged.autoApprove,
     globalCodeInstructions: cleanText(merged.globalCodeInstructions, 12_000),
