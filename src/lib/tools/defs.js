@@ -104,6 +104,9 @@ const TOOL_DEFS = [
       },
     },
   }, ['questions']),
+  tool('run_subagent', 'Delegate a read-only exploration to a subagent with its own context window: finding definitions and usages, surveying unfamiliar code, gathering evidence across many files. It cannot see this conversation, edit files, or run commands, so give complete instructions and say what its report must include. Returns only its findings.', {
+    task: { type: 'string', description: 'Self-contained instructions: what to find, where to look, what the report must include' },
+  }, ['task']),
   tool('remember', 'Save a short reusable lesson to persistent memory — a correction, a lasting preference or convention, or a mistake to avoid. One concise sentence.', {
     fact: str('The lesson'),
   }, ['fact']),

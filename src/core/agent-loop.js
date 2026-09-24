@@ -12,38 +12,13 @@ const { parseRawToolCalls } = require('./tool-call-parser');
 const { modelReadyMessages, estimateTokens } = require('./context-hygiene');
 const { unapprovedResult, isSensitiveToolCall } = require('./approvals');
 const { estimateContextTokens } = require('../lib/context-estimator');
-const { callSignature, createToolFailureTracker } = require('../lib/tool-failure');
+const { createRepeatTracker, createToolFailureTracker } = require('../lib/tool-failure');
 const { boundToolResult, toolResultLimit } = require('../lib/tool-result');
 const { outcomeOf } = require('../lib/ledger');
 const { costOf, addTurn: addCostTurn, describeTurn: describeTurnCost, describeTotals: describeCostTotals } = require('../lib/cost');
 const { RISKY_TOOLS, DESTRUCTIVE_TOOLS, isDestructiveCommand } = require('../lib/tools');
 const { MISSING_QUESTIONS, answersResult, normalizeQuestions } = require('../lib/tools/interact');
-
-// CLI addition. The failure tracker only stops a call that keeps failing; a
-// model can also loop on calls that succeed — one session ran the same `open`
-// and the same `curl | grep` eight times each, pasting the same paragraph
-// between them. A call that already returned the same result twice this turn
-// is not run a third time. A successful edit resets it: after a change,
-// running the same check again is the point.
-const REPEAT_LIMIT = 2;
-function createRepeatTracker(limit = REPEAT_LIMIT) {
-  const seen = new Map();
-  return {
-    shouldBlock(name, args) {
-      return (seen.get(callSignature(name, args))?.count || 0) >= limit;
-    },
-    record(name, args, result) {
-      if (RISKY_TOOLS.has(name) && name !== 'run_command' && !/^\s*Error:/i.test(String(result || ''))) {
-        seen.clear();
-        return;
-      }
-      const signature = callSignature(name, args);
-      const last = seen.get(signature);
-      const text = String(result || '');
-      seen.set(signature, { result: text, count: last && last.result === text ? last.count + 1 : 1 });
-    },
-  };
-}
+const { createSubagentRunner } = require('./subagent');
 
 const MAX_AGENT_STEPS = 50; // safety cap on tool-call loops per user message
 
@@ -77,6 +52,14 @@ function createAgentLoop(rt) {
     }
   }
 
+  // The most a request may carry for a given window: what is left after room
+  // for the reply and a safety margin.
+  function hardInputFor(contextLength) {
+    return Math.max(2048, contextLength - responseReserve(contextLength) - contextSafetyMargin(contextLength));
+  }
+
+  const subagents = createSubagentRunner(rt, { safeExecute, hardInputFor });
+
   function shouldAutoCompact(used, limit) {
     const settings = rt.config.settings();
     return settings.autoCompact && !!limit && used > settings.compactThreshold * limit;
@@ -88,7 +71,7 @@ function createAgentLoop(rt) {
 
   function prepareAgentMessages({ prompt, agentTools, contextLength }) {
     const system = { role: 'system', content: prompt };
-    const hardInput = Math.max(2048, contextLength - responseReserve(contextLength) - contextSafetyMargin(contextLength));
+    const hardInput = hardInputFor(contextLength);
     const messages = [system, ...modelReadyMessages(conversation())];
     return {
       messages,
@@ -122,7 +105,7 @@ function createAgentLoop(rt) {
 
   // Resolves one tool call and returns its result text. Every branch emits
   // exactly one stream:toolresult.
-  async function resolveCall({ name, args, cwd, autoApprove, activeToolNames, toolFailures, repeats, failureDirectives }) {
+  async function resolveCall({ name, args, model, cwd, autoApprove, activeToolNames, toolFailures, repeats, failureDirectives }) {
     const emit = (result, denied) => sink().emit('stream:toolresult', { name, result: preview(result), ...(denied ? { denied: true } : {}) });
     const approveThenRun = async (promptKind, deniedText, label) => {
       const decision = await rt.approvalFlow.resolveToolCall(name, args, { autoApprove, promptKind });
@@ -156,6 +139,17 @@ function createAgentLoop(rt) {
       return { result };
     }
     if (rt.run.stopRequested) return { result: 'Cancelled by user.' };
+    if (name === 'run_subagent') {
+      const task = String(args.task || '').trim();
+      if (!task) {
+        const result = 'Error: run_subagent requires a task with complete, self-contained instructions.';
+        emit(result);
+        return { result };
+      }
+      const { result, stats } = await subagents.runSubagent({ task, leadModel: model, cwd, autoApprove });
+      emit(result);
+      return { result, stats };
+    }
     if (name === 'ask_user') {
       const questions = normalizeQuestions(args);
       const result = questions.length
@@ -340,10 +334,15 @@ function createAgentLoop(rt) {
         if (!args || typeof args !== 'object') args = {};
 
         sink().toolCall({ name, args });
-        const { result, repeatedCallBlocked } = await resolveCall({
-          name, args, cwd, autoApprove, activeToolNames, toolFailures, repeats, failureDirectives,
+        const { result, repeatedCallBlocked, stats: subagentStats } = await resolveCall({
+          name, args, model, cwd, autoApprove, activeToolNames, toolFailures, repeats, failureDirectives,
         });
 
+        // A subagent's model calls are part of what this message cost.
+        if (subagentStats) {
+          turnTokens.promptTokens += subagentStats.promptTokens || 0;
+          turnTokens.evalTokens += subagentStats.evalTokens || 0;
+        }
         // Match the denial sentences rather than a UI label, or every denial
         // would count as a success and denied writes would be ledgered.
         const toolOutcome = outcomeOf(result);

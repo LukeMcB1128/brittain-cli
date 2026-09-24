@@ -44,6 +44,7 @@ function freshUsage() {
       recoveredToolCalls: 0,
       toolCallRetries: 0,
       psychosisDetections: 0,
+      subagentRuns: 0,
       compactions: 0,
       emergencyCompactions: 0,
       stoppedRuns: 0,

@@ -29,6 +29,9 @@ const RUN_CHANNELS = new Set([
   'stream:message',
   'stream:toolcall',
   'stream:toolresult',
+  // A subagent starting, calling a tool, and finishing. Its model output is not
+  // streamed: only its report reaches the lead, as run_subagent's result.
+  'stream:subagent',
   'stream:stats',
   'stream:done',
   // A question is part of the run's narrative, not UI chatter: whoever is
@@ -51,6 +54,12 @@ const TRANSCRIPT_CHANNELS = new Map([
   ['stream:info', (payload) => String(payload)],
   ['stream:toolcall', (payload) => `→ ${payload?.name || 'tool'}${summarizeArgs(payload?.args)}`],
   ['stream:toolresult', (payload) => `← ${payload?.name || 'tool'}: ${firstLine(payload?.result)}${payload?.denied ? ' (denied)' : ''}`],
+  ['stream:subagent', (payload) => {
+    if (payload?.phase === 'start') return `⤷ subagent: ${firstLine(payload.task, 120)}`;
+    if (payload?.phase === 'tool') return `  ⤷ ${payload.name || 'tool'}${summarizeArgs(payload.args)}`;
+    const calls = Number(payload?.steps) || 0;
+    return `⤷ subagent done · ${calls} tool ${calls === 1 ? 'call' : 'calls'}${payload?.note ? ` · stopped early: ${payload.note}` : ''}`;
+  }],
   ['stream:message', (payload) => `\n${String(payload ?? '')}\n`],
 ]);
 

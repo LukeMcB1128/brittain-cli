@@ -1,7 +1,8 @@
 'use strict';
 
 // docs/PLAN.md M1 acceptance: the library is Electron-free, dependency-free, and
-// ships only the §4.2 tool set.
+// ships only the §4.2 tool set — plus what was added after v1 from the §10
+// roadmap, listed separately so each addition is a deliberate edit here.
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -18,11 +19,15 @@ const V1_CODE_TOOLS = [
   'run_command', 'git_status', 'read_git_diff', 'get_git_log', 'ask_user', 'remember',
 ];
 
+// docs/PLAN.md §10 roadmap item 2.
+const ADDED_AFTER_V1 = ['run_subagent'];
+const CODE_TOOL_SET = [...V1_CODE_TOOLS, ...ADDED_AFTER_V1];
+
 // Every tool the app defines that v1 leaves behind (brittain-code@fa01d50 tools.js).
 const NOT_IN_V1 = [
   'calculate', 'pdf_info', 'pdf_render', 'pdf_fill_form', 'pdf_stamp', 'pdf_pages',
   'pdf_merge', 'edit_files', 'run_project_check', 'find_references', 'search_local_docs',
-  'run_subagent', 'append_file', 'create_directory', 'file_metadata', 'copy_file',
+  'append_file', 'create_directory', 'file_metadata', 'copy_file',
   'get_environment_variables', 'check_port_usage', 'start_process', 'process_status',
   'stop_process', 'local_http_request', 'browser_open', 'browser_snapshot', 'browser_click',
   'browser_type', 'browser_console', 'browser_screenshot', 'browser_close',
@@ -39,9 +44,9 @@ function sourceFiles(dir) {
   });
 }
 
-test('defs.js defines exactly the v1 tool set', () => {
-  assert.deepEqual(TOOL_DEFS.map((d) => d.function.name).sort(), [...V1_CODE_TOOLS].sort());
-  assert.deepEqual(tools.CODE_TOOLS.map((d) => d.function.name).sort(), [...V1_CODE_TOOLS].sort());
+test('defs.js defines exactly the v1 tool set and the tools added since', () => {
+  assert.deepEqual(TOOL_DEFS.map((d) => d.function.name).sort(), [...CODE_TOOL_SET].sort());
+  assert.deepEqual(tools.CODE_TOOLS.map((d) => d.function.name).sort(), [...CODE_TOOL_SET].sort());
   assert.equal(tools.CHAT_TOOLS, undefined, 'chat mode was removed');
   for (const definition of TOOL_DEFS) {
     assert.equal(definition.type, 'function');

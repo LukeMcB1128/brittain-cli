@@ -145,7 +145,7 @@ test('/compact, /context, /usage, /cost, /ledger report as the source does', asy
   });
   await s.runtime.commands.chat({ text: 'read a.txt', cwd: s.cwd });
   await s.runtime.commands.chat({ text: 'and?', cwd: s.cwd });
-  assert.match(await s.run('/context'), /^Context: [\d,]+ of [\d,]+ tokens[\s\S]*tools \(17\)/);
+  assert.match(await s.run('/context'), /^Context: [\d,]+ of [\d,]+ tokens[\s\S]*tools \(18\)/);
   assert.match(await s.run('/usage'), /in · [\d,]+ out over \d+ model calls[\s\S]*tool calls 1/);
   assert.match(await s.run('/cost'), /Local model — there is no bill/);
   assert.match(await s.run('/ledger'), /SESSION LEDGER[\s\S]*a\.txt/);
@@ -218,7 +218,7 @@ test('/tools lists the tools with their flags', async (t) => {
   const out = await s.run('/tools');
   assert.match(out, /^read_file\s*$/m);
   assert.match(out, /^run_command\s+risky$/m);
-  assert.equal(out.split('\n').filter((line) => /^\w+/.test(line) && !/^Destructive/.test(line)).length, 17);
+  assert.equal(out.split('\n').filter((line) => /^\w+/.test(line) && !/^Destructive/.test(line)).length, 18);
 });
 
 test('an unknown command says so', async (t) => {

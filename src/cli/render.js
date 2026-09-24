@@ -138,6 +138,7 @@ function createRenderer({ out, color = false, live = false, columns = () => 80 }
         flush();
         break;
       case 'stream:toolcall':
+      case 'stream:subagent':
       case 'stream:toolresult': {
         flush();
         const text = TRANSCRIPT_CHANNELS.get(channel)(payload);

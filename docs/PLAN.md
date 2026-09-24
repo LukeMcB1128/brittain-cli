@@ -579,7 +579,7 @@ to Ollama works with a local model.
 ## 10. Roadmap after v1 (order suggested, not committed)
 
 1. Online research (`web_search`, `web_fetch`) behind `/online`.
-2. Subagents (`run_subagent`), and a scout-model setting.
+2. ~~Subagents (`run_subagent`), and a scout-model setting.~~ **Done (2026-09-23):** `run_subagent` with the source's read-only tool set, and the `subagentModel` setting (empty = the lead's model, on the lead's provider).
 3. Image and file attachments (`@path`).
 4. Jev compaction for Brittain 4.
 5. `/plan`, `/review`, `/orchestrate`, `/loop`, missions.

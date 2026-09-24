@@ -70,7 +70,7 @@ test('an unwritable transcript does not take the run down', () => {
 
 test('every channel a run emits is declared as a run channel', () => {
   for (const channel of ['stream:state', 'stream:info', 'stream:token', 'stream:toolcall',
-    'stream:toolresult', 'stream:stats', 'stream:done']) {
+    'stream:toolresult', 'stream:subagent', 'stream:stats', 'stream:done']) {
     assert.ok(RUN_CHANNELS.has(channel), `${channel} should be a run channel`);
   }
   // A question is part of the run: whoever drives it has to be able to answer.
@@ -80,8 +80,8 @@ test('every channel a run emits is declared as a run channel', () => {
   assert.equal(RUN_CHANNELS.has('approval:request'), true);
   assert.equal(RUN_CHANNELS.has('approval:resolved'), true);
   assert.equal(RUN_CHANNELS.has('provider:changed'), true);
-  // Pruned with subagents and the end-of-run report.
-  for (const channel of ['stream:subagent', 'run:report', 'run:decisions']) {
+  // Pruned with the end-of-run report.
+  for (const channel of ['run:report', 'run:decisions']) {
     assert.equal(RUN_CHANNELS.has(channel), false);
   }
 });
